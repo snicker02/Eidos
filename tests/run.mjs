@@ -52,7 +52,7 @@ STEP_NAMES.slice(1).forEach((_, i) => { everyStep[`a${i + 1}t`] = i + 1; if (i <
 const su = sceneUniforms(everyStep);
 const decl = {};
 for (const m of fractalFrag(specOf(su)).matchAll(/uniform\s+(\w+)\s+(\w+)\s*;/g)) decl[m[2]] = m[1];
-ok(su.__A.length === 11 && su.__B.length === 8, 'every step type is in the test stack');
+ok(su.__A.length === STEP_NAMES.length - 1 && su.__B.length === 8, 'every step type is in the test stack');
 for (const [k, v] of Object.entries(su)) {
   if (k.startsWith('__')) continue;
   const t = decl[k];
@@ -138,6 +138,7 @@ section('fold steps');
   let worst = 0, worstName = '';
   for (const { t, o } of ALL_STEPS) {
     if (t === T.ZTRICK && o === 1) continue; // Mandelbulber's shift form: a jump by design (checked below)
+    if (t === T.INV) continue; // not a fold: its stretch is tracked in dr (checked in 'sphere inversion')
     for (let trial = 0; trial < 6; trial++) {
       const v = { ...defaults() };
       const st = { t, abs: o, swap: o, zm: o, pv: o, ax: o, nx: rnd() * 2 - 1, ny: rnd() * 2 - 1, nz: rnd() * 2 - 1, d: rnd() - 0.5, k: rnd(),
@@ -154,7 +155,7 @@ section('fold steps');
       }
     }
   }
-  ok(worst <= 1 + 1e-9, `all ${ALL_STEPS.length - 1} continuous step × option variants are 1-Lipschitz (worst ratio ${worst.toFixed(12)} — ${worstName})`);
+  ok(worst <= 1 + 1e-9, `all ${ALL_STEPS.length - 2} fold step × option variants are 1-Lipschitz (worst ratio ${worst.toFixed(12)} — ${worstName})`);
 
   // The icosahedral fold lands in one cell of the 120-element group, and the
   // octahedral one in one cell of the 48.
@@ -181,7 +182,9 @@ section('fold steps');
 // overshoots. Checked on every preset (spin, hybrids, rotations, planes).
 section('exact DE');
 {
+  const hasInv = v => ['a', 'b'].some(s => stackOf(v, s).some(x => x.t === T.INV));
   for (const [key, b] of Object.entries(BIOMES)) {
+    if (hasInv({ ...defaults(), ...b.v })) continue; // estimate, not a bound (see 'sphere inversion')
     const v = { ...defaults(), ...b.v, bailout: 1e6, iterations: Math.min(b.v.iterations, 8) };
     const m = makeDE(v).local;
     let worst = 0;
@@ -214,6 +217,70 @@ section('exact DE');
   let zw = 0;
   for (let i = 0; i < 400; i++) { const p = rv(1.6); zw = Math.max(zw, Math.abs(m0(p).d - m1(p).d)); }
   ok(zw < 1e-12, `Menger z-trick: mirror ≡ shift when abs follows (max diff ${zw.toExponential(1)})`);
+}
+
+// ── Sphere inversion ────────────────────────────────────────────────────────
+// One step that reproduces both of Kyma's inversions; its stretch is tracked
+// in dr exactly (it is conformal), and capped by DE Limit when set.
+section('sphere inversion');
+{
+  const one = st => {
+    const v = { ...defaults(), ...stackValues('a', [{ t: T.INV, ...st }]) };
+    const run = cpuStack(v, 'a', stackOf(v, 'a'));
+    return (z, it = 0) => { const acc = { fold: 0, colOn: 1, traps: {}, w: {}, dr: 1 }; const r = run(z, 2, [1, 1, 1], acc, it); return { z: r, k: acc.dr }; };
+  };
+  // Kyma's sphereInvert() (glsl.js, "Enable Inversion"), ported as written.
+  const kymaInv = (z, dr, c, R, amt, lim) => {
+    const dz = z.map((x, i) => x - c[i]), r2 = Math.max(dz[0] ** 2 + dz[1] ** 2 + dz[2] ** 2, 1e-6), f = R * R / r2;
+    return { z: z.map((x, i) => x + (c[i] + dz[i] * f - x) * amt), dr: dr * (1 + (Math.min(f, lim) - 1) * amt) };
+  };
+  // Kyma's Mandelbulber inversion (u_vSInv*): z += O; z *= G/|z|²; z += A − O; z *= S.
+  const mbInv = (z, dr, O, G, A, S) => {
+    let w = z.map((x, i) => x + O[i]); const ri = Math.max(w[0] ** 2 + w[1] ** 2 + w[2] ** 2, 1e-20);
+    w = w.map(x => x * G / ri); dr *= G / ri; w = w.map((x, i) => (x + A[i] - O[i]) * S); return { z: w, dr: dr * S };
+  };
+  let wk = 0, wm = 0;
+  for (let i = 0; i < 300; i++) {
+    const c = rv(1), R = 0.3 + rnd() * 1.5, amt = rnd(), lim = 1 + rnd() * 20, p = rv(2.5);
+    const a = one({ icx: c[0], icy: c[1], icz: c[2], ir: R, ia: amt, il: lim })(p), b = kymaInv(p, 1, c, R, amt, lim);
+    wk = Math.max(wk, dist3(a.z, b.z) / (1 + Math.hypot(...b.z)), Math.abs(a.k - b.dr) / b.dr);
+    const O = rv(1), G = 0.2 + rnd() * 2, A = rv(1), S = 0.5 + rnd() * 1.5;
+    const m = one({ icx: -O[0], icy: -O[1], icz: -O[2], ir: Math.sqrt(G), ia: 1, il: 0, iax: A[0], iay: A[1], iaz: A[2], is: S })(p), n = mbInv(p, 1, O, G, A, S);
+    wm = Math.max(wm, dist3(m.z, n.z) / (1 + Math.hypot(...n.z)), Math.abs(m.k - n.dr) / n.dr);
+  }
+  ok(wk < 1e-12, `matches Kyma's inversion (Amount, DE Limit) to ${wk.toExponential(1)}`);
+  ok(wm < 1e-12, `matches Kyma's Mandelbulber inversion (centre −O, R² = G, shift, scale) to ${wm.toExponential(1)}`);
+  // Conformal: at full amount, every direction stretches by exactly the tracked factor.
+  let wc = 0, wb = 0;
+  for (let i = 0; i < 200; i++) {
+    const c = rv(1), R = 0.4 + rnd(), S = 0.6 + rnd(), p = rv(2);
+    if (dist3(p, c) < 0.2) continue;
+    const st = one({ icx: c[0], icy: c[1], icz: c[2], ir: R, ia: 1, il: 0, is: S }), r0 = st(p);
+    const part = one({ icx: c[0], icy: c[1], icz: c[2], ir: R, ia: 0.4, il: 0 }), q0 = part(p);
+    for (let k = 0; k < 6; k++) {
+      const d = normalize(rv(1)), e = 1e-6, q = p.map((x, j) => x + d[j] * e);
+      wc = Math.max(wc, Math.abs(dist3(st(q).z, r0.z) / e / r0.k - 1));
+      wb = Math.max(wb, dist3(part(q).z, q0.z) / e / q0.k - 1);
+    }
+  }
+  ok(wc < 1e-4, `full inversion: tracked factor = the stretch in every direction (worst ${wc.toExponential(1)})`);
+  ok(wb < 1e-4, `partial inversion: tracked factor bounds the stretch (worst excess ${wb.toExponential(1)})`);
+  // Iteration range, and the presets that use it.
+  const ir = one({ icz: 0.5, if: 1, iu: 2 });
+  ok(dist3(ir([0.3, 0.2, 0.1], 0).z, [0.3, 0.2, 0.1]) === 0 && dist3(ir([0.3, 0.2, 0.1], 1).z, [0.3, 0.2, 0.1]) > 0.1, 'From / Until iteration range');
+  for (const key of ['invsponge', 'feather']) {
+    const v = { ...defaults(), ...BIOMES[key].v }, m = makeDE(v);
+    const s2 = viewScore(v, 6);
+    ok(s2.hitFrac > 0.05 && s2.clearance > 0.02, `${BIOMES[key].label}: visible, camera outside (${(s2.hitFrac * 100).toFixed(0)}%)`);
+    // Estimate quality: rays stepping by Step Factor × DE overshoot rarely.
+    let bad = 0, n = 0;
+    for (let i = 0; i < 120; i++) {
+      const p = rv(2.5), d = m(p).d;
+      if (!(d > 1e-3)) continue;
+      for (let k = 0; k < 8; k++) { const q = p.map((x, j) => x + normalize(rv(1))[j] * d * v.stepFactor * rnd()); n++; if (m(q).d < 0) bad++; }
+    }
+    ok(bad / Math.max(n, 1) < 0.01, `${BIOMES[key].label}: at its Step Factor ${v.stepFactor}, under 1% of steps land inside (${bad}/${n})`);
+  }
 }
 
 // ── Symmetry ────────────────────────────────────────────────────────────────

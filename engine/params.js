@@ -88,6 +88,19 @@ function slotParams(s, k) {
     { id: id('ly'), label: 'LY', type: 'range', group: g, min: 0, max: 4, step: 0.001, def: 1, hardMin: 0, row: id('l'), mutate: true, fine: true, ...own([9, 10]) },
     { id: id('lz'), label: 'LZ', type: 'range', group: g, min: 0, max: 4, step: 0.001, def: 1, hardMin: 0, row: id('l'), mutate: true, fine: true, ...own([9, 10]) },
     { id: id('n'), label: 'Sectors N', type: 'range', group: g, min: 1, max: 16, step: 1, def: 6, int: true, hardMin: 1, hardMax: 64, ...own(11) },
+    // Sphere Inversion (Kyma's inversion and Mandelbulber's in one step).
+    { id: id('icx'), label: 'CX', type: 'range', group: g, min: -3, max: 3, step: 0.001, def: 0, row: id('ic'), section: 'Inversion Centre c', mutate: true, fine: true, ...own(12) },
+    { id: id('icy'), label: 'CY', type: 'range', group: g, min: -3, max: 3, step: 0.001, def: 0, row: id('ic'), mutate: true, fine: true, ...own(12) },
+    { id: id('icz'), label: 'CZ', type: 'range', group: g, min: -3, max: 3, step: 0.001, def: 0, row: id('ic'), mutate: true, fine: true, ...own(12) },
+    { id: id('ir'), label: 'Radius R', type: 'range', group: g, min: 0.05, max: 3, step: 0.001, def: 1, hardMin: 0.0001, row: id('ira'), mutate: true, fine: true, ...own(12) },
+    { id: id('ia'), label: 'Amount', type: 'range', group: g, min: 0, max: 1, step: 0.001, def: 1, hardMin: 0, hardMax: 1, row: id('ira'), ...own(12) },
+    { id: id('iax'), label: 'AX', type: 'range', group: g, min: -3, max: 3, step: 0.001, def: 0, row: id('ia3'), section: 'Then Shift A, Scale S', mutate: true, fine: true, ...own(12) },
+    { id: id('iay'), label: 'AY', type: 'range', group: g, min: -3, max: 3, step: 0.001, def: 0, row: id('ia3'), mutate: true, fine: true, ...own(12) },
+    { id: id('iaz'), label: 'AZ', type: 'range', group: g, min: -3, max: 3, step: 0.001, def: 0, row: id('ia3'), mutate: true, fine: true, ...own(12) },
+    { id: id('is'), label: 'Scale S', type: 'range', group: g, min: 0.1, max: 4, step: 0.001, def: 1, row: id('isl'), mutate: true, fine: true, ...own(12) },
+    { id: id('il'), label: 'DE Limit (0 = off)', type: 'range', group: g, min: 0, max: 100, step: 0.1, def: 10, hardMin: 0, row: id('isl'), ...own(12) },
+    { id: id('if'), label: 'From Iter', type: 'range', group: g, min: 0, max: 20, step: 1, def: 0, int: true, hardMin: 0, hardMax: 249, row: id('iit'), ...own(12) },
+    { id: id('iu'), label: 'Until Iter', type: 'range', group: g, min: 1, max: 40, step: 1, def: 250, int: true, hardMin: 1, hardMax: 250, row: id('iit'), ...own(12) },
     { id: id('cw'), label: 'Colour Weight', type: 'range', group: g, min: 0, max: 2, step: 0.01, def: 1, hardMin: 0, hardMax: 100, ...own(ON_TYPES) },
   ];
 }

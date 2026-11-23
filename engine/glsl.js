@@ -180,7 +180,7 @@ float g_orbit = 0.0; // raw orbit trap min |z|² (before any colour-source overr
 const iterBody = (S, rot, rotOn, sc, ctr) => `
       s = ${sc} + u_scaleStep * fi;
       c = ${ctr} + u_centerStep * fi;
-      z = stack${S}(z, s, c);
+      z = stack${S}(z, s, c, i, dr);
       if (rotOn && ${rotOn}) z = u_postRotC ? ${rot} * (z - c) + c : ${rot} * z;`;
 
 function mapLocalSource(sum, reset, hasB, shapeBody) {
@@ -249,7 +249,8 @@ ${hasB ? `    if (hybridB(i)) {${B}
   if (u_colorSource == 1) trap = g_boxCol * u_foldColW * 2.5;
   else if (u_colorSource == 2) trap += g_boxCol * u_foldColW * 2.5;
   else if (u_colorSource == 3) trap = ${sum};
-  // Exact: every step is 1-Lipschitz, so the only stretch is Π|s| = dr.
+  // Exact when every step is a fold (1-Lipschitz): dr = Π|s|. A Sphere
+  // Inversion step multiplies in its own (conformal) stretch, as Mandelbulber does.
   return shapeDE(z) / max(dr, 1e-30);
 }
 `;

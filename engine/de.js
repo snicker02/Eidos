@@ -45,7 +45,9 @@ export function makeDE(v, scaleOverride) {
       const b = hasB && useB(i);
       const s = (b ? sB : sA) + dS * i;
       const c = (b ? cB : cA).map((x, k) => x + dC[k] * i);
-      z = (b ? runB : runA)(z, s, c, acc);
+      acc.dr = 1;
+      z = (b ? runB : runA)(z, s, c, acc, i);
+      dr *= acc.dr;
       const R = b ? POSTB : POST, on = b ? postBOn : postOn;
       if (rotOn && on) z = v.postRotC ? mv(R, [z[0] - c[0], z[1] - c[1], z[2] - c[2]]).map((x, k) => x + c[k]) : mv(R, z);
       z = [s * (z[0] - c[0]) + c[0], s * (z[1] - c[1]) + c[1], s * (z[2] - c[2]) + c[2]];

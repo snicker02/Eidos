@@ -66,6 +66,8 @@ void main() { float tr; float d = map(u_p, tr); gl_FragColor = pack(clamp(d / 16
     stepSets.push([`${STEP_NAMES[t].split(' ')[0]} ${o}`.padEnd(14), { ...BIOMES.octa.v, ...stackValues('a', [{ t: T.ABS, abs: 1 }, { t, abs: o, swap: o, zm: o, pv: o, ax: o, nx: 0.6, ny: -0.3, nz: 0.7, d: 0.15, k: 0.8, ra: 25, rb: -15, rg: 40, lx: 0.7, ly: 0.9, lz: 0.6, n: 5 }]), centerY: 0.4, centerZ: 0.3, shape: 0, shapeR: 0.8, iterations: 8 }]);
   const sets = [['default', {}], ...Object.entries(BIOMES).map(([k, b]) => [k, b.v]), ...stepSets,
     ['shape box', { ...BIOMES.menger.v, shape: 1, shapeBX: 0.6, shapeBY: 1.3, shapeBZ: 0.9 }],
+    ['inversion full', { ...BIOMES.octa.v, ...stackValues('a', [{ t: T.OCTA }, { t: T.INV, icx: 0.3, icy: -0.2, icz: 0.5, ir: 0.8, ia: 0.7, il: 6, iax: 0.1, iay: 0.2, iaz: -0.1, is: 1.1, if: 1, iu: 5 }]) }],
+    ['inversion in B', { ...BIOMES.hybrid.v, ...stackValues('b', [{ t: T.INV, icz: 1.2, ir: 1.1, il: 0 }, { t: T.SIERP }]) }],
     ['shape octa', { ...BIOMES.octa.v, shape: 2, shapeR: 1.2 }],
     ['hybrid switch', { ...BIOMES.hybrid.v, hybridMode: 2, hybN: 3, alphaB: 0.3, gammaB: -0.2 }],
     ['hybrid pattern', { ...BIOMES.hybrid.v, hybridMode: 3, hybLen: 5, hybP2: true, hybP3: false, hybP5: true, centerBY: 0.6 }],
