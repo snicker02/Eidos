@@ -15,14 +15,14 @@ import { VideoWriter, pickEncoder, canEncodeVideo, videoBitrate } from './engine
 import { defaults as paramDefaults, PARAMS, effectiveIterations } from './engine/params.js';
 const PARAM_DEF = paramDefaults();
 import { BIOMES, PRESET_GROUPS, SYMMETRY_GROUPS, symmetryValues, evolve, rebirth, encodeDiscovery, decodeDiscovery, makeProject, parseProject, PREFIX } from './engine/presets.js';
-import { STEP_DESC, STACKS, sid } from './engine/kifs.js';
+import { STEP_DESC, STEP_NAMES, STACKS, SHAPES, ESTIMATE_TYPES, ESTIMATE_SHAPES, WYTHOFF, sid } from './engine/kifs.js';
 import { wrapPi, clamp } from './engine/vec.js';
 import { Panel } from './ui/panel.js';
 import { MutationGrid } from './ui/mutation.js';
 import { initMobileTabs } from './ui/mobiletabs.js';
 import { proceduralTexture, imageTexture, TEX_KEYS } from './engine/textures.js';
 
-export const VERSION = '1.1.0';
+export const VERSION = '1.2.0';
 
 const $ = id => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -288,14 +288,26 @@ syncGradPreview();
   const w = el('div', 'fold-desc');
   w.style.borderColor = '#c9a227';
   panel.group('stack').querySelector('.seq-hint').after(w);
-  const live = () => [['a', true], ['b', (state.get('hybridMode') | 0) > 0]].some(([s, on]) => on && (() => {
-    for (let k = 1; k <= STACKS[s].n; k++) { const t = state.get(sid(s, k, 't')) | 0; if (!t) return false; if (t === 12) return true; } return false; })());
-  const sync = () => {
-    const on = live();
-    w.style.display = on ? '' : 'none';
-    w.textContent = on ? `Sphere Inversion is on: the DE is an estimate, not a bound. If you see holes or speckle, lower Step Factor (Iteration panel; now ${(+state.get('stepFactor')).toFixed(2)}).` : '';
+  // Which estimate-making steps / shape are live right now.
+  const live = () => {
+    const names = new Set();
+    for (const [s, on] of [['a', true], ['b', (state.get('hybridMode') | 0) > 0]]) {
+      if (!on) continue;
+      for (let k = 1; k <= STACKS[s].n; k++) {
+        const t = state.get(sid(s, k, 't')) | 0;
+        if (!t) break;
+        if (ESTIMATE_TYPES.includes(t)) names.add(STEP_NAMES[t]);
+      }
+    }
+    if (ESTIMATE_SHAPES.includes(state.get('shape') | 0)) names.add(`${SHAPES[state.get('shape') | 0]} shape`);
+    return [...names];
   };
-  state.onChange(id => { if (id == null || id === 'stepFactor' || id === 'hybridMode' || /^[ab]\d+t$/.test(id)) sync(); });
+  const sync = () => {
+    const n = live();
+    w.style.display = n.length ? '' : 'none';
+    w.textContent = n.length ? `${n.join(', ')}: the DE is an estimate, not a bound. If you see holes or speckle, lower Step Factor (Iteration panel; now ${(+state.get('stepFactor')).toFixed(2)}).` : '';
+  };
+  state.onChange(id => { if (id == null || id === 'stepFactor' || id === 'hybridMode' || id === 'shape' || /^[ab]\d+t$/.test(id)) sync(); });
   sync();
 }
 for (const s of ['a', 'b']) {
@@ -309,6 +321,18 @@ for (const s of ['a', 'b']) {
     state.onChange(i2 => { if (i2 === id || i2 == null) sync(); });
     sync();
   }
+}
+{
+  // Wythoff: name the three corners of the chosen mirror cell.
+  const d = el('div', 'fold-desc');
+  panel.controls.get('wyGroup').wrap.after(d);
+  panel.gateNode(d, { gate: 'ctrMode', gateEq: 1 });
+  const sync = () => {
+    const g = WYTHOFF[state.get('wyGroup') | 0];
+    d.textContent = `Weights on the corners of one ${g.name} mirror cell. A: ${g.labels[0]}, B: ${g.labels[1]}, C: ${g.labels[2]}. One weight → a corner; two → along an edge; three → inside. Use with the matching fold (${g.name.split(' ')[0]} Planes, or its chiral version).`;
+  };
+  state.onChange(i2 => { if (i2 === 'wyGroup' || i2 == null) sync(); });
+  sync();
 }
 {
   const d = el('div', 'fold-desc');

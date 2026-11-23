@@ -86,6 +86,8 @@ uniform vec3  u_centerStep;
 uniform float u_bail2;        // bailout radius²
 uniform float u_shapeR;       // DE shape size
 uniform vec3  u_shapeBox;     // box proportions
+uniform float u_shapeT;       // shell / frame / rod thickness, Kleinian offset
+uniform int   u_shapeAx;      // torus / capsule axis (0 X, 1 Y, 2 Z)
 #ifdef HAS_B
 uniform float u_scaleB;
 uniform vec3  u_centerB;
