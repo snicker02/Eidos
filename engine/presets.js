@@ -62,6 +62,10 @@ export const BIOMES = {
     { scale: 3, centerX: 1, centerY: 1, centerZ: 1, shape: 1, shapeR: 1, iterations: 6, spinX: 0.05, spinZ: 0.09, rotX: 0.6, rotY: -0.45, dist: 3.8, palette: 9 }),
   drift: scene('Drifting Flake', 'vary', [{ t: T.OCTA }],
     { scale: 2, scaleStep: -0.03, centerX: 1, centerY: 0.2, centerZ: 0, centerStepY: 0.04, shape: 2, shapeR: 1, iterations: 12, rotX: 0.4, rotY: -0.4, dist: 4.3, palette: 10 }),
+  invsponge: scene('Inverted Sponge', 'inv', [{ t: T.INV, icx: 0.6, icy: 0.4, icz: 1.6, ir: 1.4, il: 0, iu: 1 }, { t: T.OCTA }, { t: T.ZTRICK }],
+    { scale: 3, centerX: 1, centerY: 1, centerZ: 1, shape: 1, shapeR: 1, iterations: 6, rotX: 0.72, rotY: -0.52, dist: 4, palette: 1, colorSource: 1, foldColW: 0.2, stepFactor: 0.9 }),
+  feather: scene('Feathered Sierpinski', 'inv', [{ t: T.INV, ir: 1.2, ia: 0.35, il: 10 }, { t: T.SIERP }],
+    { scale: 2, centerX: 1, centerY: 1, centerZ: 1, shape: 3, shapeR: 1, iterations: 12, rotX: 0.62, rotY: -0.42, dist: 4.3, palette: 3, colorShift: 0.1, stepFactor: 0.8 }),
   hybrid: scene('Menger ⇄ Sierpinski', 'hybrid', [{ t: T.OCTA }, { t: T.ZTRICK }],
     { scale: 3, centerX: 1, centerY: 1, centerZ: 1, hybridMode: 1, hybN: 2, scaleB: 2, centerBX: 1, centerBY: 1, centerBZ: 1, shape: 1, shapeR: 1, iterations: 8, rotX: 0.62, rotY: -0.42, dist: 4.2, palette: 11, colorSource: 1 },
     [{ t: T.SIERP }]),
@@ -70,7 +74,7 @@ export const BIOMES = {
     [{ t: T.OCTA }]),
 };
 export const PRESET_GROUPS = [
-  ['Classic KIFS', 'classic'], ['Rotated KIFS', 'rot'], ['Symmetry groups', 'sym'], ['Per-iteration variation', 'vary'], ['Hybrids', 'hybrid'],
+  ['Classic KIFS', 'classic'], ['Rotated KIFS', 'rot'], ['Symmetry groups', 'sym'], ['Per-iteration variation', 'vary'], ['Sphere inversion', 'inv'], ['Hybrids', 'hybrid'],
 ];
 
 // ── Symmetry groups (Stack A only; the rest of the scene is kept) ──────────

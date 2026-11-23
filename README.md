@@ -1,6 +1,6 @@
-# Eidos v1.0.0
+# Eidos v1.1.0
 
-**Eidos** (εἶδος, Greek for "form", the *eidos* in kaleidoscope) is a progressive WebGL1 raymarcher for **Kaleidoscopic IFS** (KIFS) fractals. You build each iteration from a stack of fold steps (abs, plane swaps, Sierpinski, octahedral and icosahedral mirror sets, custom planes, the Menger z-trick, rotations, edge and box folds, dihedral folds), and Eidos compiles that stack into a straight-line shader. Every step is a reflection, fold or rotation, so the distance estimate is **exact** and Step Factor 1.0 never overshoots.
+**Eidos** (εἶδος, Greek for "form", the *eidos* in kaleidoscope) is a progressive WebGL1 raymarcher for **Kaleidoscopic IFS** (KIFS) fractals. You build each iteration from a stack of fold steps (abs, plane swaps, Sierpinski, octahedral and icosahedral mirror sets, custom planes, the Menger z-trick, rotations, edge and box folds, dihedral folds, and sphere inversion), and Eidos compiles that stack into a straight-line shader. Folds, reflections and rotations keep the distance estimate **exact**, so Step Factor 1.0 never overshoots; sphere inversion trades that for its own look and is tracked as an estimate.
 
 It is the sibling of [Kyma](https://github.com/snicker02/Kyma) and runs on Kyma's engine: progressive rendering, path tracing, volumetric glow, three lights with click-to-place, materials and textures, repetition, deep zoom, the mutation grid, Evolve, keyframe animation, MP4 / WebM video and the phone tab layout. Only the formula layer is new. No dependencies, no build step.
 
@@ -57,6 +57,7 @@ Stack A has 12 slots and Stack B has 8. Pick a fold for **Step 1**, and **Step 2
 | **Edge Fold** | z → E − \|E − z\| per axis (E = 0 leaves that axis alone). | — |
 | **Box Fold** | Mandelbox fold: clamp to ±limit and reflect. | — |
 | **Dihedral N-Fold** | Mirror into one of N angular sectors around an axis. | Axis: X, Y, Z |
+| **Sphere Inversion** | z → c + (z − c)·R²/\|z − c\|², blended by **Amount**, then shifted by **A** and scaled by **S**, for iterations **From … Until**. Not a fold: see below. | — |
 
 **Compilation.** The step types and their compiled options make up the program key (`engine/renderer.js` `specKey`), so each stack compiles once to straight-line GLSL with only the code it needs. Plane normals, limits, angles, N, strengths and colour weights are uniforms, so dragging a slider never recompiles. Programs compile in the background where `KHR_parallel_shader_compile` exists, and the previous image stays up meanwhile.
 
@@ -64,9 +65,19 @@ Stack A has 12 slots and Stack B has 8. Pick a fold for **Step 1**, and **Step 2
 
 ## Exact distance estimate
 
-Every step is 1-Lipschitz (a reflection, a fold, a rotation, or a partial reflection with strength between 0 and 1). So an iteration stretches space by exactly |s|, the running derivative is exactly Π|s|, and `shape(F(p)) / dr` is a true lower bound on the distance. **Step Factor** defaults to 1.0, and that is safe. The tests check that every step and option is 1-Lipschitz and that every preset's DE is 1-Lipschitz in p.
+Every fold step is 1-Lipschitz (a reflection, a fold, a rotation, or a partial reflection with strength between 0 and 1). So an iteration stretches space by exactly |s|, the running derivative is exactly Π|s|, and `shape(F(p)) / dr` is a true lower bound on the distance. **Step Factor** defaults to 1.0, and that is safe. The tests check that every step and option is 1-Lipschitz and that every preset's DE is 1-Lipschitz in p.
 
-The one exception is the Menger z-trick's **Shift** mode. That is Mandelbulber's own form, and it jumps. It gives the same DE as **Mirror** whenever an Abs on z comes next iteration, as in the Menger sponge (the tests check this too). Eidos uses Shift only for exact Mandelbulber imports.
+**Sphere Inversion is the exception on purpose.** It is Kyma's two inversions in one step:
+
+| Kyma | Eidos Sphere Inversion |
+|---|---|
+| **Enable Inversion** (centre, radius, Amount, DE Scale Limit), Pre-Fold | the step at the top of the stack, From 0 Until 250 |
+| … Post-Fold | the same step at the bottom of the stack |
+| **Mandelbulber Inversion** (O, Radius² G, A, Post Scale S, From / Until) | centre = −O, R = √G, Amount 1, DE Limit 0, shift A, scale S |
+
+The tests check it against both of Kyma's formulas. An inversion stretches space by R²/|z − c|², which is unbounded near the centre, so no fold-style bound exists. The step multiplies that stretch into dr. At full Amount the stretch is exactly the same in every direction (the map is conformal), so this is Mandelbulber's first-order estimate; at partial Amount the tracked factor is an upper bound. **DE Limit** caps the factor near the centre, as Kyma's DE Scale Limit does, so the march doesn't stall; 0 turns the cap off. While an inversion is in the stack, a note under *Fold Stack A* says the DE is an estimate and shows the current Step Factor. The two inversion presets use 0.9 and 0.8.
+
+The other exception is the Menger z-trick's **Shift** mode. That is Mandelbulber's own form, and it jumps. It gives the same DE as **Mirror** whenever an Abs on z comes next iteration, as in the Menger sponge (the tests check this too). Eidos uses Shift only for exact Mandelbulber imports.
 
 **DE Shape** is the seed solid the folds carve: **Sphere** (radius = Size; 0 = a point, Mandelbulber's KIFS DE), **Box** (half-size × Box Proportions), **Octahedron** or **Tetrahedron**. Use a shape that contains the attractor (Sierpinski → tetrahedron, Menger → box, the symmetry presets set one). Then the approximations nest, and the bailout shortcut stays a lower bound too.
 
@@ -82,7 +93,7 @@ Pre-rotation, spin, variation and the DE shape are shared. Turning Stack B on co
 
 ## Presets
 
-Classic KIFS (Sierpinski tetrahedron, Menger sponge, octahedral flake, icosahedral flake, dodecahedral cage, icosahedral dust), rotated KIFS (Knighty's cathedral, twisted Sierpinski, kaleido coral), symmetry groups (hexagonal drum, edge-folded dust), per-iteration variation (spun sponge, drifting flake), and hybrids (Menger ⇄ Sierpinski, an AAB pattern). On a first visit the app opens on the Sierpinski tetrahedron.
+Classic KIFS (Sierpinski tetrahedron, Menger sponge, octahedral flake, icosahedral flake, dodecahedral cage, icosahedral dust), rotated KIFS (Knighty's cathedral, twisted Sierpinski, kaleido coral), symmetry groups (hexagonal drum, edge-folded dust), per-iteration variation (spun sponge, drifting flake), sphere inversion (inverted sponge, feathered Sierpinski), and hybrids (Menger ⇄ Sierpinski, an AAB pattern). On a first visit the app opens on the Sierpinski tetrahedron.
 
 **Rebirth** builds a random stack from a symmetry group, sometimes with an extra custom plane, rotation or edge fold, and random rotations. It is checked on the CPU so the camera is outside the shape and some of it is in view. **Evolve** and the **Mutation Grid** mutate only the controls that are live in the current stack.
 
@@ -457,7 +468,7 @@ The tests check that it compiles in every render mode, that it is 1-Lipschitz, a
 npm test                                  # schema, camera, fold steps (Lipschitz, group cells), exact DE,
                                           # symmetry invariance, spec keys, hybrids, colour, sequencer,
                                           # codec, materials, lights, repetition, Mandelbulber import,
-                                          # evolve/rebirth, zip — and glslangValidator over 108 programs
+                                          # evolve/rebirth, zip — and glslangValidator over 111 programs
 python3 -m http.server 8000 & node tests/browser.mjs
 ```
 
@@ -470,6 +481,8 @@ python3 -m http.server 8000 & node tests/browser.mjs
 - the layouts at 390×844 and 844×390 with touch (docked view, tabs, one-finger orbit) and at 1440×900 desktop.
 
 ## Changelog
+
+**1.1.0** — **Sphere Inversion** fold step: Kyma's inversion and its Mandelbulber-style inversion in one step (centre, radius, Amount, shift, scale, DE Limit, iteration range), with tracked derivative, a live "DE is an estimate" note, and two presets (Inverted Sponge, Feathered Sierpinski). Tests: parity with both Kyma formulas, tracked factor = true stretch, GPU/CPU parity.
 
 **1.0.0** — First release. Forked from Kyma 2.20's engine, with a new KIFS formula layer: compiled fold stacks (11 step types), exact DE, two-stack hybrid schedules, per-iteration variation, four DE shapes, per-step colouring, symmetry-group presets, and Mandelbulber import with reference ports. A correct icosahedral fold (the 120-cell H3 fundamental domain).
 

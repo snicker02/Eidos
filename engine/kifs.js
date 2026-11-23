@@ -11,17 +11,21 @@
 // exactly the code it needs and nothing else; every continuous value (plane
 // normals, limits, angles, colour weights) is a uniform.
 //
-// Every step is a 1-Lipschitz map: a reflection across a plane, a conditional
-// reflection (fold), a rotation, or a partial reflection with strength in
-// [0, 1]. So the only stretch in an iteration is the final scale, the running
-// derivative is exactly Π|s|, and shape(z) / dr is a true lower bound on the
-// distance: Step Factor 1.0 never overshoots.
+// Every step but one is a 1-Lipschitz map: a reflection across a plane, a
+// conditional reflection (fold), a rotation, or a partial reflection with
+// strength in [0, 1]. So the only stretch in an iteration is the final scale,
+// the running derivative is exactly Π|s|, and shape(z) / dr is a true lower
+// bound on the distance: Step Factor 1.0 never overshoots.
+//
+// The exception is Sphere Inversion (Kyma's two inversions in one step). It is
+// conformal, so its stretch at z is exactly R²/|z − c|², and the step tracks it
+// in dr. The DE is then Mandelbulber's first-order estimate, not a bound.
 
 export const STEP_NAMES = [
   'Off', 'Abs', 'Plane Swaps', 'Sierpinski (tetrahedral)', 'Octahedral Planes', 'Icosahedral Planes',
-  'Custom Plane', 'Menger Z-Trick', 'Rotate', 'Edge Fold', 'Box Fold', 'Dihedral N-Fold',
+  'Custom Plane', 'Menger Z-Trick', 'Rotate', 'Edge Fold', 'Box Fold', 'Dihedral N-Fold', 'Sphere Inversion',
 ];
-export const T = { OFF: 0, ABS: 1, SWAP: 2, SIERP: 3, OCTA: 4, ICOSA: 5, PLANE: 6, ZTRICK: 7, ROT: 8, EDGE: 9, BOX: 10, DIHEDRAL: 11 };
+export const T = { OFF: 0, ABS: 1, SWAP: 2, SIERP: 3, OCTA: 4, ICOSA: 5, PLANE: 6, ZTRICK: 7, ROT: 8, EDGE: 9, BOX: 10, DIHEDRAL: 11, INV: 12 };
 export const ABS_MASKS = ['XYZ', 'XY', 'XZ', 'YZ', 'X', 'Y', 'Z'];
 export const SWAP_MODES = ['Sort x ≥ y ≥ z', 'x ↔ y (if x < y)', 'x ↔ z (if x < z)', 'y ↔ z (if y < z)'];
 export const ROT_PIVOTS = ['Origin', 'Centre'];
@@ -41,10 +45,12 @@ export const STEP_DESC = [
   'Fold each axis down about its edge value E: z → E − |E − z| (axes with E = 0 are left alone).',
   'Mandelbox box fold: clamp to ±limit and reflect, z → 2·clamp(z) − z.',
   'Mirror into one of N angular sectors around an axis: N-fold dihedral (prism) symmetry.',
+  'Invert in a sphere: z → c + (z − c)·R²/|z − c|², blended by Amount, then shifted by A and scaled by S, for iterations From … Until. Not a fold: the DE becomes an estimate (derivative tracked, capped at DE Limit; 0 = uncapped). Lower Step Factor if you see holes.',
 ];
 
 // Slot fields. Defaults are what a freshly enabled step starts with.
-export const SLOT_FIELDS = ['t', 'abs', 'swap', 'zm', 'pv', 'ax', 'nx', 'ny', 'nz', 'd', 'k', 'ra', 'rb', 'rg', 'lx', 'ly', 'lz', 'n', 'cw'];
+export const SLOT_FIELDS = ['t', 'abs', 'swap', 'zm', 'pv', 'ax', 'nx', 'ny', 'nz', 'd', 'k', 'ra', 'rb', 'rg', 'lx', 'ly', 'lz', 'n',
+  'icx', 'icy', 'icz', 'ir', 'ia', 'il', 'iax', 'iay', 'iaz', 'is', 'if', 'iu', 'cw'];
 export const STACKS = { a: { n: 12, name: 'A' }, b: { n: 8, name: 'B' } };
 export const sid = (s, k, f) => `${s}${k}${f}`; // e.g. a3t, b1nx (k is 1-based)
 
@@ -88,10 +94,12 @@ export const stepRotation = (a, b, g) => mm(mm(RZm((a || 0) * DEG), RYm((b || 0)
 //   p: vec4 (plane normal + offset; edge / box limits; dihedral N)
 //   q: vec4 (x = plane strength, w = colour weight)
 //   m: mat3 row-major (Rotate only)
+//   r: vec4 (Sphere Inversion: shift A, post-scale S)
+//   it: vec2 (Sphere Inversion: iteration range [from, until))
 export function slotData(v, s, slot) {
   const g = f => v[sid(s, slot.k, f)];
   const q = [1, 0, 0, g('cw') ?? 1];
-  let p = null, m = null;
+  let p = null, m = null, r = null, it = null;
   switch (slot.t) {
     case T.PLANE: {
       let n = [g('nx') ?? 1, g('ny') ?? 0, g('nz') ?? 0];
@@ -104,17 +112,25 @@ export function slotData(v, s, slot) {
     case T.ROT: m = stepRotation(g('ra'), g('rb'), g('rg')); break;
     case T.EDGE: case T.BOX: p = [g('lx') ?? 1, g('ly') ?? 1, g('lz') ?? 1, 0]; break;
     case T.DIHEDRAL: p = [Math.max(1, Math.round(g('n') ?? 6)), 0, 0, 0]; break;
+    case T.INV:
+      p = [g('icx') ?? 0, g('icy') ?? 0, g('icz') ?? 0, Math.max(1e-4, g('ir') ?? 1)];
+      q[0] = Math.max(0, Math.min(1, g('ia') ?? 1));
+      q[1] = Math.max(0, g('il') ?? 10);
+      r = [g('iax') ?? 0, g('iay') ?? 0, g('iaz') ?? 0, g('is') ?? 1];
+      it = [g('if') ?? 0, g('iu') ?? 250];
+      break;
     default: break;
   }
-  return { p, q, m };
+  return { p, q, m, r, it };
 }
 
-const needsP = t => t === T.PLANE || t === T.EDGE || t === T.BOX || t === T.DIHEDRAL;
+const needsP = t => t === T.PLANE || t === T.EDGE || t === T.BOX || t === T.DIHEDRAL || t === T.INV;
 
 // ── GLSL emission ────────────────────────────────────────────────────────────
 // Each step body works on `z` with `h` (reflections counted for fold colouring),
-// and may read P (vec4), Q (vec4), M (mat3), s (this iteration's scale) and
-// c (its centre). Names are substituted per slot.
+// and may read P (vec4), Q (vec4), M (mat3), R (vec4), I (vec2), s (this
+// iteration's scale), c (its centre) and it (the iteration index); only Sphere
+// Inversion writes `dr`. Names are substituted per slot.
 function glslBody(t, o) {
   switch (t) {
     case T.ABS: return ABS_MASKS[o].toLowerCase().split('').map(a => `if (z.${a} < 0.0) { z.${a} = -z.${a}; h += 1.0; }`).join('\n    ');
@@ -145,6 +161,17 @@ function glslBody(t, o) {
     float a1 = abs(mod(a0 + sec, 2.0 * sec) - sec); if (abs(a1 - a0) > 1e-5) h += 1.0;
     z.${sw} = length(dw) * vec2(cos(a1), sin(a1));`;
     }
+    case T.INV: return `float fit = float(it);
+    if (fit >= I.x && fit < I.y) {
+      vec3 dz = z - P.xyz;
+      float r2 = max(dot(dz, dz), 1e-6);
+      float f = P.w * P.w / r2;
+      if (r2 < P.w * P.w) h += 1.0;
+      z = mix(z, P.xyz + dz * f, Q.x);
+      dr *= mix(1.0, Q.y > 0.0 ? min(f, Q.y) : f, Q.x);
+      z = (z + R.xyz) * R.w;
+      dr *= abs(R.w);
+    }`;
     default: return '';
   }
 }
@@ -158,9 +185,11 @@ export function glslStack(s, slots) {
     decl.push(`uniform vec4 ${n}q;`);
     if (needsP(sl.t)) decl.push(`uniform vec4 ${n}p;`);
     if (sl.t === T.ROT) decl.push(`uniform mat3 ${n}m;`);
+    if (sl.t === T.INV) decl.push(`uniform vec4 ${n}r;`, `uniform vec2 ${n}i;`);
     traps.push(`g_t${s}${sl.k}`);
     const code = glslBody(sl.t, sl.o)
-      .replace(/\bP\./g, `${n}p.`).replace(/\bQ\./g, `${n}q.`).replace(/\bM \*/g, `${n}m *`);
+      .replace(/\bP\./g, `${n}p.`).replace(/\bQ\./g, `${n}q.`).replace(/\bM \*/g, `${n}m *`)
+      .replace(/\bR\./g, `${n}r.`).replace(/\bI\./g, `${n}i.`);
     body.push(`  { // ${s}${sl.k}: ${STEP_NAMES[sl.t]}
     float h = 0.0;
     ${code}
@@ -170,7 +199,7 @@ export function glslStack(s, slots) {
   }
   return {
     decl: decl.join('\n') + (traps.length ? `\nfloat ${traps.join(', ')};` : ''),
-    fn: `vec3 stack${S}(vec3 z, float s, vec3 c) {\n${body.join('\n')}\n  return z;\n}`,
+    fn: `vec3 stack${S}(vec3 z, float s, vec3 c, int it, inout float dr) {\n${body.join('\n')}\n  return z;\n}`,
     reset: traps.map(t => `${t} = 1e10;`).join(' '),
     sum: traps.map((t, i) => `(${t} < 1e9 ? u_${s}${slots[i].k}q.w * ${t} : 0.0)`).join(' + ') || '0.0',
   };
@@ -180,8 +209,8 @@ export function glslStack(s, slots) {
 const sNZ = s => (Math.abs(s) < 1e-6 ? (s < 0 ? -1e-6 : 1e-6) : s);
 const fmodG = (x, y) => x - y * Math.floor(x / y); // GLSL mod()
 
-function cpuStep(t, o, z, D, s, c) {
-  let h = 0;
+function cpuStep(t, o, z, D, s, c, it = 0) {
+  let h = 0, k = 1; // k: derivative factor (Sphere Inversion only)
   const [x0, y0, w0] = z;
   let x = x0, y = y0, w = w0;
   switch (t) {
@@ -206,7 +235,7 @@ function cpuStep(t, o, z, D, s, c) {
     }
     case T.OCTA: {
       const a = cpuStep(T.ABS, 0, z, D, s, c), b = cpuStep(T.SWAP, 0, a.z, D, s, c);
-      return { z: b.z, h: a.h + b.h };
+      return { z: b.z, h: a.h + b.h, k: 1 };
     }
     case T.ICOSA: {
       const N = ICO_N;
@@ -262,18 +291,34 @@ function cpuStep(t, o, z, D, s, c) {
       [x, y, w] = v;
       break;
     }
+    case T.INV: {
+      if (it >= D.it[0] && it < D.it[1]) {
+        const P = D.p, a = D.q[0], L = D.q[1], R = D.r;
+        const d0 = x - P[0], d1 = y - P[1], d2 = w - P[2];
+        const r2 = Math.max(d0 * d0 + d1 * d1 + d2 * d2, 1e-6);
+        const f = P[3] * P[3] / r2;
+        if (r2 < P[3] * P[3]) h++;
+        x += (P[0] + d0 * f - x) * a; y += (P[1] + d1 * f - y) * a; w += (P[2] + d2 * f - w) * a;
+        k = 1 + ((L > 0 ? Math.min(f, L) : f) - 1) * a;
+        x = (x + R[0]) * R[3]; y = (y + R[1]) * R[3]; w = (w + R[2]) * R[3];
+        k *= Math.abs(R[3]);
+      }
+      break;
+    }
     default: break;
   }
-  return { z: [x, y, w], h };
+  return { z: [x, y, w], h, k };
 }
 
-// Returns (z, s, c, acc) => z for a compiled stack. acc: { fold, colOn, traps[] }.
+// Returns (z, s, c, acc, it) => z for a compiled stack. acc: { fold, colOn,
+// traps, w, dr } — dr is multiplied by any Sphere Inversion's factor.
 export function cpuStack(v, s, slots) {
   const data = slots.map(sl => slotData(v, s, sl));
-  return (z, sc, c, acc) => {
+  return (z, sc, c, acc, it = 0) => {
     for (let i = 0; i < slots.length; i++) {
-      const r = cpuStep(slots[i].t, slots[i].o, z, data[i], sc, c);
+      const r = cpuStep(slots[i].t, slots[i].o, z, data[i], sc, c, it);
       z = r.z;
+      if (r.k !== 1) acc.dr = (acc.dr ?? 1) * r.k;
       acc.fold += acc.colOn * data[i].q[3] * r.h;
       const zz = z[0] * z[0] + z[1] * z[1] + z[2] * z[2];
       const tk = s + slots[i].k;

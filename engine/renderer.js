@@ -212,6 +212,8 @@ export function sceneUniforms(v, scaleOverride) {
       out[`u_${s}${sl.k}q`] = d.q;
       if (d.p) out[`u_${s}${sl.k}p`] = d.p;
       if (d.m) out[`u_${s}${sl.k}m`] = mat3ToColumnMajor(d.m);
+      if (d.r) out[`u_${s}${sl.k}r`] = d.r;
+      if (d.it) out[`u_${s}${sl.k}i`] = d.it;
     }
   }
   return out;

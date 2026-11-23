@@ -22,7 +22,7 @@ import { MutationGrid } from './ui/mutation.js';
 import { initMobileTabs } from './ui/mobiletabs.js';
 import { proceduralTexture, imageTexture, TEX_KEYS } from './engine/textures.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 
 const $ = id => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
@@ -279,9 +279,24 @@ syncGradPreview();
     toast(`Stack A: ${SYMMETRY_GROUPS[i].name.split('  ')[0]}`, 2500);
     sel.value = '';
   });
-  const note = el('div', 'seq-hint', 'Each iteration: pre-rotation → spin → the steps below in order → post-rotation → scale about the centre. Every step is a fold, reflection or rotation, so the distance estimate is exact (Step Factor 1).');
+  const note = el('div', 'seq-hint', 'Each iteration: pre-rotation → spin → the steps below in order → post-rotation → scale about the centre. Folds, reflections and rotations keep the distance estimate exact (Step Factor 1); a Sphere Inversion step makes it an estimate.');
   note.style.marginTop = '0';
   g.prepend(sel, note);
+}
+{
+  // Inversion warning: shown while a Sphere Inversion is in a live stack.
+  const w = el('div', 'fold-desc');
+  w.style.borderColor = '#c9a227';
+  panel.group('stack').querySelector('.seq-hint').after(w);
+  const live = () => [['a', true], ['b', (state.get('hybridMode') | 0) > 0]].some(([s, on]) => on && (() => {
+    for (let k = 1; k <= STACKS[s].n; k++) { const t = state.get(sid(s, k, 't')) | 0; if (!t) return false; if (t === 12) return true; } return false; })());
+  const sync = () => {
+    const on = live();
+    w.style.display = on ? '' : 'none';
+    w.textContent = on ? `Sphere Inversion is on: the DE is an estimate, not a bound. If you see holes or speckle, lower Step Factor (Iteration panel; now ${(+state.get('stepFactor')).toFixed(2)}).` : '';
+  };
+  state.onChange(id => { if (id == null || id === 'stepFactor' || id === 'hybridMode' || /^[ab]\d+t$/.test(id)) sync(); });
+  sync();
 }
 for (const s of ['a', 'b']) {
   for (let k = 1; k <= STACKS[s].n; k++) {
