@@ -1,0 +1,5 @@
+# Mandelbulber settings file
+# version 2.26
+# only modified parameters
+[main_parameters]
+formula_1 8;

@@ -1,0 +1,11 @@
+{
+  "name": "eidos",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Eidos — WebGL1 progressive raymarcher for Kaleidoscopic IFS fractals: compiled fold stacks, exact DE, hybrids, Mandelbulber import. No dependencies.",
+  "scripts": {
+    "test": "node tests/run.mjs",
+    "serve": "python3 -m http.server 8000"
+  }
+}

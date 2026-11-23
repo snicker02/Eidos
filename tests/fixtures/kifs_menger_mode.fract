@@ -1,0 +1,29 @@
+# Mandelbulber settings file
+# version 2.26
+# only modified parameters
+[main_parameters]
+camera 1,9 -2,7 1,6;
+camera_top 0 0 1;
+target 0,1 0 -0,05;
+fov 60;
+formula_1 10;
+N 9;
+DE_factor 0,8;
+primitive_plane_1_enabled true;
+primitive_plane_1_position 0 0 -1,4;
+[fractal_1]
+IFS_abs_x true;
+IFS_abs_y true;
+IFS_abs_z true;
+IFS_direction_5 1 -1 0;
+IFS_direction_6 1 0 -1;
+IFS_direction_7 0 1 -1;
+IFS_distance_5 0,1;
+IFS_rotations_6 8 0 4;
+IFS_intensity_7 0,7;
+IFS_enabled_5 true;
+IFS_enabled_6 true;
+IFS_enabled_7 true;
+IFS_menger_sponge_mode true;
+IFS_offset 1 1 1;
+IFS_scale 3;

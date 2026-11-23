@@ -1,0 +1,28 @@
+# Mandelbulber settings file
+# version 2.26
+# only modified parameters
+[main_parameters]
+camera 2,4 -2,8 1,7;
+camera_top 0 0 1;
+target 0 0 0;
+formula_1 10;
+formula_2 7;
+formula_iterations_1 2;
+hybrid_fractal_enable true;
+N 10;
+[fractal_1]
+IFS_abs_x true;
+IFS_abs_y true;
+IFS_abs_z true;
+IFS_direction_0 1 -1 0;
+IFS_direction_1 1 0 -1;
+IFS_direction_2 0 1 -1;
+IFS_enabled_0 true;
+IFS_enabled_1 true;
+IFS_enabled_2 true;
+IFS_offset 1 0,6 0,4;
+IFS_rotation 0 15 25;
+IFS_rotation_enabled true;
+IFS_scale 2,2;
+[fractal_2]
+transf_scale_3 3;

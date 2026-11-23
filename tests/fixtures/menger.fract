@@ -1,0 +1,13 @@
+# Mandelbulber settings file
+# version 2.26
+# only modified parameters
+[main_parameters]
+camera 2,2 -2,9 1,9;
+camera_top 0 0 1;
+target 0 0 0;
+formula_1 7;
+N 8;
+fractal_position 0,1 0 0;
+fractal_rotation 10 20 0;
+[fractal_1]
+transf_scale_3 2,8;
