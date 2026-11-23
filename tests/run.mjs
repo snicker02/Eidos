@@ -8,7 +8,7 @@ import { Sequencer, MODE, EASE } from '../engine/sequencer.js';
 import { encodeDiscovery, decodeDiscovery, evolve, rebirth, makeProject, parseProject, BIOMES, SYMMETRY_GROUPS, symmetryValues, isActive } from '../engine/presets.js';
 import { sceneUniforms, jitterFor, lensFor, specOf, specKey } from '../engine/renderer.js';
 import { FRACTAL_FRAG, fractalFrag } from '../engine/glsl.js';
-import { T, ABS_MASKS, SWAP_MODES, ROT_PIVOTS, AXES, ZTRICK_MODES, STACKS, SHAPES, stackOf, slotData, cpuStack, hybridUsesB, stackValues, ICO_N } from '../engine/kifs.js';
+import { T, ABS_MASKS, SWAP_MODES, ROT_PIVOTS, AXES, ZTRICK_MODES, STACKS, SHAPES, stackOf, slotData, cpuStack, hybridUsesB, stackValues, ICO_N, ESTIMATE_TYPES, ESTIMATE_SHAPES, WYTHOFF, stackCenter, shapeFn } from '../engine/kifs.js';
 import { spawnSync } from 'node:child_process';
 import { ZipWriter, crc32 } from '../engine/zip.js';
 import { writeFileSync, readFileSync } from 'node:fs';
@@ -21,6 +21,9 @@ let seed = 12345;
 const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 const rv = (a = 2) => [(rnd() * 2 - 1) * a, (rnd() * 2 - 1) * a, (rnd() * 2 - 1) * a];
 const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+// Does this scene use a step or shape that makes the DE an estimate?
+const isEstimate = v => ESTIMATE_SHAPES.includes(v.shape | 0)
+  || ['a', 'b'].some(s => (s === 'a' || (v.hybridMode | 0) > 0) && stackOf(v, s).some(x => ESTIMATE_TYPES.includes(x.t)));
 
 
 // ── Schema ──────────────────────────────────────────────────────────────────
@@ -48,11 +51,12 @@ ok(coerce(PARAM_BY_ID.get('lightColor'), 'red') === undefined, 'bad colour rejec
 // Every uniform the JS sends must be declared in the shader with a compatible
 // type — checked on a scene that uses every step type in both stacks.
 const everyStep = { ...defaults(), hybridMode: 3 };
-STEP_NAMES.slice(1).forEach((_, i) => { everyStep[`a${i + 1}t`] = i + 1; if (i < 8) everyStep[`b${i + 1}t`] = 11 - i; });
+// Types 1–12 fill Stack A, the rest go in Stack B.
+for (let t = 1; t < STEP_NAMES.length; t++) { if (t <= 12) everyStep[`a${t}t`] = t; else everyStep[`b${t - 12}t`] = t; }
 const su = sceneUniforms(everyStep);
 const decl = {};
 for (const m of fractalFrag(specOf(su)).matchAll(/uniform\s+(\w+)\s+(\w+)\s*;/g)) decl[m[2]] = m[1];
-ok(su.__A.length === STEP_NAMES.length - 1 && su.__B.length === 8, 'every step type is in the test stack');
+ok(new Set([...su.__A, ...su.__B].map(x => x.t)).size === STEP_NAMES.length - 1, 'every step type is in the test stacks');
 for (const [k, v] of Object.entries(su)) {
   if (k.startsWith('__')) continue;
   const t = decl[k];
@@ -130,7 +134,7 @@ section('fractal rotation');
 // ── Fold steps ──────────────────────────────────────────────────────────────
 // Every step type × compile-time option is 1-Lipschitz (folds, reflections,
 // rotations, partial reflections): the property that makes the DE exact.
-const OPTIONS = { [T.ABS]: ABS_MASKS.length, [T.SWAP]: SWAP_MODES.length, [T.ZTRICK]: ZTRICK_MODES.length, [T.ROT]: ROT_PIVOTS.length, [T.DIHEDRAL]: AXES.length };
+const OPTIONS = { [T.ABS]: ABS_MASKS.length, [T.SWAP]: SWAP_MODES.length, [T.ZTRICK]: ZTRICK_MODES.length, [T.ROT]: ROT_PIVOTS.length, [T.DIHEDRAL]: AXES.length, [T.CYCLIC]: AXES.length };
 const ALL_STEPS = [];
 for (let t = 1; t < STEP_NAMES.length; t++) for (let o = 0; o < (OPTIONS[t] || 1); o++) ALL_STEPS.push({ t, o });
 section('fold steps');
@@ -138,7 +142,7 @@ section('fold steps');
   let worst = 0, worstName = '';
   for (const { t, o } of ALL_STEPS) {
     if (t === T.ZTRICK && o === 1) continue; // Mandelbulber's shift form: a jump by design (checked below)
-    if (t === T.INV) continue; // not a fold: its stretch is tracked in dr (checked in 'sphere inversion')
+    if (ESTIMATE_TYPES.includes(t)) continue; // inversions / rotation-only folds: estimates, checked below
     for (let trial = 0; trial < 6; trial++) {
       const v = { ...defaults() };
       const st = { t, abs: o, swap: o, zm: o, pv: o, ax: o, nx: rnd() * 2 - 1, ny: rnd() * 2 - 1, nz: rnd() * 2 - 1, d: rnd() - 0.5, k: rnd(),
@@ -155,12 +159,12 @@ section('fold steps');
       }
     }
   }
-  ok(worst <= 1 + 1e-9, `all ${ALL_STEPS.length - 2} fold step × option variants are 1-Lipschitz (worst ratio ${worst.toFixed(12)} — ${worstName})`);
+  ok(worst <= 1 + 1e-9, `all ${ALL_STEPS.filter(x => !ESTIMATE_TYPES.includes(x.t)).length - 1} fold step × option variants are 1-Lipschitz (worst ratio ${worst.toFixed(12)} — ${worstName})`);
 
   // The icosahedral fold lands in one cell of the 120-element group, and the
   // octahedral one in one cell of the 48.
   const gs = () => Math.sqrt(-2 * Math.log(rnd() || 1e-12)) * Math.cos(2 * Math.PI * rnd());
-  for (const [t, order] of [[T.ICOSA, 120], [T.OCTA, 48]]) {
+  for (const [t, order] of [[T.ICOSA, 120], [T.OCTA, 48], [T.TETRA, 24], [T.CHIR_T, 12], [T.CHIR_O, 24], [T.CHIR_I, 60]]) {
     const v = { ...defaults(), ...stackValues('a', [{ t }]) };
     const run = cpuStack(v, 'a', stackOf(v, 'a'));
     let fixed = 0, idem = 0, n = 60000;
@@ -182,9 +186,8 @@ section('fold steps');
 // overshoots. Checked on every preset (spin, hybrids, rotations, planes).
 section('exact DE');
 {
-  const hasInv = v => ['a', 'b'].some(s => stackOf(v, s).some(x => x.t === T.INV));
   for (const [key, b] of Object.entries(BIOMES)) {
-    if (hasInv({ ...defaults(), ...b.v })) continue; // estimate, not a bound (see 'sphere inversion')
+    if (isEstimate({ ...defaults(), ...b.v })) continue; // estimates, not bounds (checked in 'estimates')
     const v = { ...defaults(), ...b.v, bailout: 1e6, iterations: Math.min(b.v.iterations, 8) };
     const m = makeDE(v).local;
     let worst = 0;
@@ -268,20 +271,126 @@ section('sphere inversion');
   // Iteration range, and the presets that use it.
   const ir = one({ icz: 0.5, if: 1, iu: 2 });
   ok(dist3(ir([0.3, 0.2, 0.1], 0).z, [0.3, 0.2, 0.1]) === 0 && dist3(ir([0.3, 0.2, 0.1], 1).z, [0.3, 0.2, 0.1]) > 0.1, 'From / Until iteration range');
-  for (const key of ['invsponge', 'feather']) {
-    const v = { ...defaults(), ...BIOMES[key].v }, m = makeDE(v);
-    const s2 = viewScore(v, 6);
-    ok(s2.hitFrac > 0.05 && s2.clearance > 0.02, `${BIOMES[key].label}: visible, camera outside (${(s2.hitFrac * 100).toFixed(0)}%)`);
-    // Estimate quality: rays stepping by Step Factor × DE overshoot rarely.
+}
+
+// ── Estimates: inversions, chiral / cyclic folds, Kleinian ───────────────────
+// No bound exists, so measure: from points outside, a step of Step Factor × DE
+// should almost never land inside the surface. Every estimate preset is checked
+// at its own Step Factor.
+section('estimates');
+{
+  for (const [key, b] of Object.entries(BIOMES)) {
+    const v = { ...defaults(), ...b.v };
+    if (!isEstimate(v)) continue;
+    ok(v.stepFactor < 1, `${b.label}: estimate preset marches shorter than 1 (Step Factor ${v.stepFactor})`);
+    const m = makeDE(v);
     let bad = 0, n = 0;
-    for (let i = 0; i < 120; i++) {
-      const p = rv(2.5), d = m(p).d;
-      if (!(d > 1e-3)) continue;
-      for (let k = 0; k < 8; k++) { const q = p.map((x, j) => x + normalize(rv(1))[j] * d * v.stepFactor * rnd()); n++; if (m(q).d < 0) bad++; }
+    const R = key === 'kleinian' ? 1 : 2.5, ctr = key === 'kleinian' ? [0, 0, 0] : [0, 0, 0];
+    for (let i = 0; i < 160; i++) {
+      const p = rv(R).map((x, j) => x + ctr[j]), d = m(p).d;
+      if (!(d > 1e-4)) continue;
+      for (let k = 0; k < 8; k++) { const dir = normalize(rv(1)), q = p.map((x, j) => x + dir[j] * d * v.stepFactor * rnd()); n++; if (m(q).d < 0) bad++; }
     }
-    ok(bad / Math.max(n, 1) < 0.01, `${BIOMES[key].label}: at its Step Factor ${v.stepFactor}, under 1% of steps land inside (${bad}/${n})`);
+    ok(n > 100 && bad / n < 0.01, `${b.label}: under 1% of Step-Factor steps land inside (${bad}/${n})`);
+  }
+  // Chiral folds are pure rotations (det +1 everywhere), so they keep handedness.
+  for (const t of [T.CHIR_T, T.CHIR_O, T.CHIR_I, T.CYCLIC]) {
+    const v = { ...defaults(), ...stackValues('a', [{ t, n: 5 }]) };
+    const run = cpuStack(v, 'a', stackOf(v, 'a'));
+    let improper = 0;
+    for (let i = 0; i < 400; i++) {
+      const p = rv(1.5), e = 1e-7, acc = () => ({ fold: 0, colOn: 1, traps: {}, w: {} });
+      const f0 = run(p, 2, [1, 0, 0], acc());
+      const J = [[e, 0, 0], [0, e, 0], [0, 0, e]].map(d => run(p.map((x, k) => x + d[k]), 2, [1, 0, 0], acc()).map((x, k) => (x - f0[k]) / e));
+      const det = J[0][0] * (J[1][1] * J[2][2] - J[1][2] * J[2][1]) - J[0][1] * (J[1][0] * J[2][2] - J[1][2] * J[2][0]) + J[0][2] * (J[1][0] * J[2][1] - J[1][1] * J[2][0]);
+      if (!(Math.abs(det - 1) < 1e-4)) improper++;
+    }
+    ok(improper === 0, `${STEP_NAMES[t]}: a rotation everywhere (det +1 at 400 points)`);
   }
 }
+
+// ── Kleinian (Knighty) ──────────────────────────────────────────────────────
+// Ported from Knighty's pseudo-Kleinian DE (Fragmentarium):
+//   p = 2·clamp(p, −CSize, CSize) − p; k = max(Size / p·p, 1); p *= k;
+//   DEfactor *= k; p += C;   …   rxy = |p.xy|;
+//   return max(rxy − Offset, |rxy·p.z| / |p|) / DEfactor
+section('kleinian');
+{
+  const knighty = (p, CS, Size, C, Off, MI) => {
+    let f = 1;
+    for (let i = 0; i < MI; i++) {
+      p = p.map((x, k) => 2 * Math.max(-CS[k], Math.min(CS[k], x)) - x);
+      const k = Math.max(Size / (p[0] ** 2 + p[1] ** 2 + p[2] ** 2), 1);
+      p = p.map((x, j) => x * k + C[j]); f *= k;
+    }
+    const rxy = Math.hypot(p[0], p[1]);
+    return Math.max(rxy - Off, Math.abs(rxy * p[2]) / Math.hypot(...p)) / f;
+  };
+  let w = 0;
+  for (let trial = 0; trial < 5; trial++) {
+    const CS = [0.7 + rnd() * 0.4, 0.7 + rnd() * 0.4, 0.7 + rnd() * 0.5], R = 0.8 + rnd() * 0.4, C = rv(0.2), Off = rnd() * 0.1, MI = 6 + (trial % 5);
+    const v = { ...defaults(), ...stackValues('a', [{ t: T.KLEIN, lx: CS[0], ly: CS[1], lz: CS[2], kr: R, kcx: C[0], kcy: C[1], kcz: C[2] }]),
+      scale: 1, centerX: 0, centerY: 0, centerZ: 0, shape: 9, shapeT: Off, iterations: MI, bailout: 1e12 };
+    const m = makeDE(v).local;
+    for (let i = 0; i < 200; i++) { const p = rv(1.5), ref = knighty(p, CS, R * R, C, Off, MI); w = Math.max(w, Math.abs(m(p).d - ref) / Math.max(1e-12, Math.abs(ref))); }
+  }
+  ok(w < 1e-9, `Kleinian step + shape match Knighty's pseudo-Kleinian DE (worst rel ${w.toExponential(1)})`);
+}
+
+// ── Iteration ranges, Wythoff centres, seed shapes ──────────────────────────
+section('ranges, wythoff, shapes');
+{
+  // A step outside its range does nothing; the two-phase preset is pure
+  // octahedral for its first three iterations.
+  const tp = { ...defaults(), ...BIOMES.twophase.v };
+  const octOnly = { ...tp, ...stackValues('a', [{ t: T.OCTA }]) };
+  let w3 = 0, w4 = 0;
+  for (let i = 0; i < 200; i++) {
+    const p = rv(2);
+    w3 = Math.max(w3, Math.abs(makeDE({ ...tp, iterations: 3 }).local(p).d - makeDE({ ...octOnly, iterations: 3 }).local(p).d));
+    w4 = Math.max(w4, Math.abs(makeDE({ ...tp, iterations: 5 }).local(p).d - makeDE({ ...octOnly, iterations: 5 }).local(p).d));
+  }
+  ok(w3 < 1e-12 && w4 > 1e-3, `From / Until: Sierpinski joins at iteration 3 (diff before ${w3.toExponential(1)}, after ${w4.toFixed(3)})`);
+  ok(specKey(specOf(sceneUniforms({ ...defaults(), a1if: 2, a1iu: 5 }))) === specKey(specOf(sceneUniforms(defaults()))), 'iteration ranges are uniforms (no recompile)');
+  // Wythoff: the centre lies in the cell its fold maps into, at the right corner.
+  const foldOf = [T.TETRA, T.OCTA, T.ICOSA];
+  for (let g = 0; g < WYTHOFF.length; g++) {
+    const v = { ...defaults(), ...stackValues('a', [{ t: foldOf[g] }]) };
+    const run = cpuStack(v, 'a', stackOf(v, 'a'));
+    let wIn = 0;
+    for (let i = 0; i < 300; i++) {
+      const c = stackCenter({ ctrMode: 1, wyGroup: g, wyA: rnd(), wyB: rnd(), wyC: rnd(), wyR: 0.5 + rnd() * 2 });
+      wIn = Math.max(wIn, dist3(run(c, 2, [1, 0, 0], { fold: 0, colOn: 1, traps: {}, w: {} }), c));
+    }
+    const corner = k => stackCenter({ ctrMode: 1, wyGroup: g, wyA: +(k === 0), wyB: +(k === 1), wyC: +(k === 2), wyR: 1.7 });
+    const cornersOk = [0, 1, 2].every(k => dist3(corner(k), WYTHOFF[g].corners[k].map(x => x * 1.7)) < 1e-12);
+    ok(wIn < 1e-12 && cornersOk, `Wythoff ${WYTHOFF[g].name}: centres stay in the fold's cell, corners exact`);
+  }
+  ok(dist3(stackCenter({ ...defaults(), ctrMode: 0, centerX: 0.3, centerY: -0.2, centerZ: 0.9 }), [0.3, -0.2, 0.9]) === 0, 'manual centre unchanged');
+  // Seed shapes 0–8 are exact distances: 1-Lipschitz, and |d| = distance to
+  // the zero set where it was checked by bisection along a ray.
+  const BOUND_ONLY = [2, 3];
+  for (let sh = 0; sh < SHAPES.length; sh++) {
+    if (ESTIMATE_SHAPES.includes(sh)) continue;
+    const f = shapeFn({ shape: sh, shapeR: 0.8, shapeT: 0.12, shapeBX: 1.2, shapeBY: 0.7, shapeBZ: 1, shapeAx: sh % 3 });
+    let lip = 0, under = 0;
+    for (let i = 0; i < 2000; i++) {
+      const a = rv(2), b = rnd() < 0.5 ? rv(2) : a.map(x => x + (rnd() - 0.5) * 0.02);
+      lip = Math.max(lip, Math.abs(f(a) - f(b)) / dist3(a, b));
+    }
+    // Exactness: moving d along the gradient from outside reaches the surface.
+    for (let i = 0; i < 300; i++) {
+      const p = rv(2), d = f(p);
+      if (!(d > 0.01)) continue;
+      const e = 1e-6, g = [0, 1, 2].map(k => (f(p.map((x, j) => x + (j === k ? e : 0))) - f(p.map((x, j) => x - (j === k ? e : 0)))) / (2 * e));
+      const gl = Math.hypot(...g), q = p.map((x, k) => x - g[k] / gl * d);
+      // Octahedron / tetrahedron are plane-distance lower bounds: never past the surface.
+      if (BOUND_ONLY.includes(sh) ? f(q) < -1e-4 : Math.abs(f(q)) > 1e-4) under++;
+    }
+    ok(lip <= 1 + 1e-6 && under === 0, `shape ${SHAPES[sh]}: ${BOUND_ONLY.includes(sh) ? 'lower bound' : 'exact distance'} (Lipschitz ${lip.toFixed(6)}, gradient steps ${BOUND_ONLY.includes(sh) ? 'never cross' : 'land on'} the surface)`);
+  }
+}
+
 
 // ── Symmetry ────────────────────────────────────────────────────────────────
 // The DE of each group's stack is invariant under that group's operations.
@@ -299,12 +408,22 @@ section('symmetry');
     ['Menger: 4-fold about y', 'menger', p => [p[2], p[1], -p[0]]],
     ['Sierpinski: mirror x + y = 0', 'sierpinski', p => [-p[1], -p[0], p[2]]],
     ['Hexagonal drum: 6-fold about z', 'hex', p => mv(axisRot([0, 0, 1], Math.PI / 3), p)],
+    ['Twisted icosahedral (chiral): 5-fold about a vertex', 'chiralico', p => mv(axisRot([0, 1, PHI], 2 * Math.PI / 5), p)],
+    ['Snub octahedral (chiral): 4-fold about x', 'snub', p => mv(axisRot([1, 0, 0], Math.PI / 2), p)],
+    ['Pentagonal pinwheel: 5-fold about z', 'pinwheel', p => mv(axisRot([0, 0, 1], 2 * Math.PI / 5), p)],
   ];
   for (const [name, key, g] of cases) {
     const m = makeDE({ ...defaults(), ...BIOMES[key].v }).local;
     let w = 0;
     for (let i = 0; i < 300; i++) { const p = rv(2); w = Math.max(w, Math.abs(m(p).d - m(g(p)).d)); }
     ok(w < 1e-9, `${name} (max diff ${w.toExponential(1)})`);
+  }
+  // Chiral shapes are handed: their mirror image is a different shape.
+  for (const [key, mir] of [['chiralico', p => [-p[0], p[1], p[2]]], ['snub', p => [p[0], p[1], -p[2]]], ['pinwheel', p => [p[0], -p[1], p[2]]]]) {
+    const m = makeDE({ ...defaults(), ...BIOMES[key].v }).local;
+    let w = 0;
+    for (let i = 0; i < 300; i++) { const p = rv(2); w = Math.max(w, Math.abs(m(p).d - m(mir(p)).d)); }
+    ok(w > 1e-3, `${BIOMES[key].label}: not mirror-symmetric (it is handed; max diff ${w.toFixed(3)})`);
   }
   for (let i = 0; i < SYMMETRY_GROUPS.length; i++) {
     const v = { ...defaults(), ...symmetryValues(i) };

@@ -3,7 +3,7 @@
 import { PARAMS, PARAM_BY_ID, defaults, coerce } from './params.js';
 import { viewScore } from './de.js';
 import { CUSTOM_GRADIENT, GRADIENTS } from './gradients.js';
-import { T, STACKS, sid, stackValues, SYMMETRY_GROUPS } from './kifs.js';
+import { T, STACKS, sid, stackValues, SYMMETRY_GROUPS, ESTIMATE_TYPES } from './kifs.js';
 
 const r = (a, b) => a + Math.random() * (b - a);
 const ri = n => Math.floor(Math.random() * n);
@@ -66,6 +66,22 @@ export const BIOMES = {
     { scale: 3, centerX: 1, centerY: 1, centerZ: 1, shape: 1, shapeR: 1, iterations: 6, rotX: 0.72, rotY: -0.52, dist: 4, palette: 1, colorSource: 1, foldColW: 0.2, stepFactor: 0.9 }),
   feather: scene('Feathered Sierpinski', 'inv', [{ t: T.INV, ir: 1.2, ia: 0.35, il: 10 }, { t: T.SIERP }],
     { scale: 2, centerX: 1, centerY: 1, centerZ: 1, shape: 3, shapeR: 1, iterations: 12, rotX: 0.62, rotY: -0.42, dist: 4.3, palette: 3, colorShift: 0.1, stepFactor: 0.8 }),
+  wythoff: scene('Truncated Octahedral Flake', 'wythoff', [{ t: T.OCTA }],
+    { scale: 3, ctrMode: 1, wyGroup: 1, wyA: 1, wyB: 1, wyC: 0, wyR: 1, shape: 0, shapeR: 0.9, iterations: 8, rotX: 0.55, rotY: -0.5, dist: 3.6, palette: 6 }),
+  twophase: scene('Two-Phase Flake', 'wythoff', [{ t: T.OCTA, iu: 3 }, { t: T.SIERP, if: 3 }],
+    { scale: 2, centerX: 1, centerY: 1, centerZ: 1, shape: 2, shapeR: 1.3, iterations: 12, rotX: 0.55, rotY: -0.5, dist: 4, palette: 3 }),
+  snub: scene('Snub Octahedral Flake', 'chiral', [{ t: T.CHIR_O }],
+    { scale: 2.6, ctrMode: 1, wyGroup: 1, wyA: 1, wyB: 0.7, wyC: 0.5, wyR: 1, shape: 0, shapeR: 0.9, iterations: 9, rotX: 0.55, rotY: -0.5, dist: 3.6, palette: 6, stepFactor: 0.8 }),
+  chiralico: scene('Twisted Icosahedral', 'chiral', [{ t: T.CHIR_I }],
+    { scale: 2.3, ctrMode: 1, wyGroup: 2, wyA: 0.6, wyB: 1, wyC: 0.8, wyR: 1, shape: 0, shapeR: 0.8, iterations: 9, rotX: 0.4, rotY: -0.3, dist: 3.3, palette: 2, stepFactor: 0.8 }),
+  pinwheel: scene('Pentagonal Pinwheel', 'chiral', [{ t: T.ABS, abs: 6 }, { t: T.CYCLIC, ax: 2, n: 5 }],
+    { scale: 2.3, centerX: 1, centerY: 0.35, centerZ: 0.5, shape: 0, shapeR: 0.7, iterations: 10, rotX: 0.4, rotY: -0.55, dist: 4.3, palette: 6, stepFactor: 0.8 }),
+  wiresponge: scene('Wireframe Sponge', 'shapes', [{ t: T.OCTA }, { t: T.ZTRICK }],
+    { scale: 3, centerX: 1, centerY: 1, centerZ: 1, shape: 5, shapeR: 1, shapeT: 0.07, iterations: 3, rotX: 0.72, rotY: -0.52, dist: 4.4, palette: 1 }),
+  rings: scene('Ring Flake', 'shapes', [{ t: T.ICOSA }],
+    { scale: 2.5, centerX: 0, centerY: 0.525731, centerZ: 0.850651, shape: 7, shapeR: 0.6, shapeT: 0.1, iterations: 10, rotX: 0.4, rotY: -0.3, dist: 3.4, palette: 2 }),
+  kleinian: scene('Pseudo-Kleinian Caves', 'kleinian', [{ t: T.KLEIN, lx: 0.92, ly: 0.9, lz: 0.92, kr: 1 }],
+    { scale: 1, centerX: 0, centerY: 0, centerZ: 0, shape: 9, shapeT: 0.05, iterations: 10, bailout: 1000, rotX: 0.5, rotY: -0.1, dist: 0.5, palette: 21, colorSource: 1, foldColW: 0.08, stepFactor: 0.8 }),
   hybrid: scene('Menger ⇄ Sierpinski', 'hybrid', [{ t: T.OCTA }, { t: T.ZTRICK }],
     { scale: 3, centerX: 1, centerY: 1, centerZ: 1, hybridMode: 1, hybN: 2, scaleB: 2, centerBX: 1, centerBY: 1, centerBZ: 1, shape: 1, shapeR: 1, iterations: 8, rotX: 0.62, rotY: -0.42, dist: 4.2, palette: 11, colorSource: 1 },
     [{ t: T.SIERP }]),
@@ -74,14 +90,14 @@ export const BIOMES = {
     [{ t: T.OCTA }]),
 };
 export const PRESET_GROUPS = [
-  ['Classic KIFS', 'classic'], ['Rotated KIFS', 'rot'], ['Symmetry groups', 'sym'], ['Per-iteration variation', 'vary'], ['Sphere inversion', 'inv'], ['Hybrids', 'hybrid'],
+  ['Classic KIFS', 'classic'], ['Rotated KIFS', 'rot'], ['Symmetry groups', 'sym'], ['Per-iteration variation', 'vary'], ['Sphere inversion', 'inv'], ['Wythoff centres & iteration ranges', 'wythoff'], ['Chiral (rotation-only) folds', 'chiral'], ['Seed shapes', 'shapes'], ['Kleinian', 'kleinian'], ['Hybrids', 'hybrid'],
 ];
 
 // ── Symmetry groups (Stack A only; the rest of the scene is kept) ──────────
 export { SYMMETRY_GROUPS };
 export function symmetryValues(i) {
   const g = SYMMETRY_GROUPS[i];
-  return g ? { ...stackValues('a', g.steps), ...g.set } : {};
+  return g ? { ...stackValues('a', g.steps), ctrMode: 0, ...g.set } : {};
 }
 
 // Small mutation of 3–5 live geometric params (~6% of each slider span).
@@ -136,6 +152,8 @@ export function rebirth(current, tries = 24) {
       spinY: Math.random() < 0.85 ? 0 : r(-0.08, 0.08),
       spinZ: Math.random() < 0.85 ? 0 : r(-0.08, 0.08),
       iterations: 8 + ri(6),
+      // Chiral / cyclic steps make the DE an estimate: march a little shorter.
+      stepFactor: steps.some(x => ESTIMATE_TYPES.includes(x.t)) ? 0.8 : 1,
       colorShift: Math.random(),
       colorSource: pick([0, 0, 1, 2, 3]),
       palette: (i => (i >= CUSTOM_GRADIENT ? i + 1 : i))(ri(GRADIENTS.length - 1)), // any built-in (not Custom)

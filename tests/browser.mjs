@@ -60,12 +60,16 @@ void main() { float tr; float d = map(u_p, tr); gl_FragColor = pack(clamp(d / 16
   const px = new Uint8Array(4);
   // Every step type (and compile option) after an Abs, every preset, hybrids,
   // variation, shapes, object transform and repetition.
-  const OPTS = { 1: 7, 2: 4, 7: 2, 8: 2, 11: 3 };
+  const OPTS = { 1: 7, 2: 4, 7: 2, 8: 2, 11: 3, 17: 3 };
   const stepSets = [];
   for (let t = 1; t < STEP_NAMES.length; t++) for (let o = 0; o < (OPTS[t] || 1); o++)
     stepSets.push([`${STEP_NAMES[t].split(' ')[0]} ${o}`.padEnd(14), { ...BIOMES.octa.v, ...stackValues('a', [{ t: T.ABS, abs: 1 }, { t, abs: o, swap: o, zm: o, pv: o, ax: o, nx: 0.6, ny: -0.3, nz: 0.7, d: 0.15, k: 0.8, ra: 25, rb: -15, rg: 40, lx: 0.7, ly: 0.9, lz: 0.6, n: 5 }]), centerY: 0.4, centerZ: 0.3, shape: 0, shapeR: 0.8, iterations: 8 }]);
   const sets = [['default', {}], ...Object.entries(BIOMES).map(([k, b]) => [k, b.v]), ...stepSets,
     ['shape box', { ...BIOMES.menger.v, shape: 1, shapeBX: 0.6, shapeBY: 1.3, shapeBZ: 0.9 }],
+    ...[4, 5, 6, 7, 8].map(sh => [`shape ${sh}`.padEnd(14), { ...BIOMES.octa.v, shape: sh, shapeR: 0.8, shapeT: 0.1, shapeAx: sh % 3, shapeBX: 1.1, shapeBY: 0.8 }]),
+    ['wythoff Ih', { ...BIOMES.icosa.v, ctrMode: 1, wyGroup: 2, wyA: 0.3, wyB: 0.8, wyC: 0.5, wyR: 1.1 }],
+    ['ranges', { ...BIOMES.octa.v, ...stackValues('a', [{ t: T.OCTA, iu: 3 }, { t: T.SIERP, if: 2, iu: 6 }, { t: T.ROT, ra: 20, if: 4 }]) }],
+    ['kleinian deep', { ...BIOMES.kleinian.v, iterations: 14 }],
     ['inversion full', { ...BIOMES.octa.v, ...stackValues('a', [{ t: T.OCTA }, { t: T.INV, icx: 0.3, icy: -0.2, icz: 0.5, ir: 0.8, ia: 0.7, il: 6, iax: 0.1, iay: 0.2, iaz: -0.1, is: 1.1, if: 1, iu: 5 }]) }],
     ['inversion in B', { ...BIOMES.hybrid.v, ...stackValues('b', [{ t: T.INV, icz: 1.2, ir: 1.1, il: 0 }, { t: T.SIERP }]) }],
     ['shape octa', { ...BIOMES.octa.v, shape: 2, shapeR: 1.2 }],

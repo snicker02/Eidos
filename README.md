@@ -1,6 +1,6 @@
-# Eidos v1.1.0
+# Eidos v1.2.0
 
-**Eidos** (εἶδος, Greek for "form", the *eidos* in kaleidoscope) is a progressive WebGL1 raymarcher for **Kaleidoscopic IFS** (KIFS) fractals. You build each iteration from a stack of fold steps (abs, plane swaps, Sierpinski, octahedral and icosahedral mirror sets, custom planes, the Menger z-trick, rotations, edge and box folds, dihedral folds, and sphere inversion), and Eidos compiles that stack into a straight-line shader. Folds, reflections and rotations keep the distance estimate **exact**, so Step Factor 1.0 never overshoots; sphere inversion trades that for its own look and is tracked as an estimate.
+**Eidos** (εἶδος, Greek for "form", the *eidos* in kaleidoscope) is a progressive WebGL1 raymarcher for **Kaleidoscopic IFS** (KIFS) fractals. You build each iteration from a stack of fold steps (abs, plane swaps, Sierpinski, octahedral and icosahedral mirror sets, custom planes, the Menger z-trick, rotations, edge and box folds, dihedral folds, rotation-only (chiral) folds, sphere inversion, and Knighty's pseudo-Kleinian step), and Eidos compiles that stack into a straight-line shader. Mirror folds and rotations keep the distance estimate **exact**, so Step Factor 1.0 never overshoots. Inversions, chiral folds and the Kleinian step trade that for their own looks and are tracked as estimates.
 
 It is the sibling of [Kyma](https://github.com/snicker02/Kyma) and runs on Kyma's engine: progressive rendering, path tracing, volumetric glow, three lights with click-to-place, materials and textures, repetition, deep zoom, the mutation grid, Evolve, keyframe animation, MP4 / WebM video and the phone tab layout. Only the formula layer is new. No dependencies, no build step.
 
@@ -42,7 +42,7 @@ After the last iteration (or once |z| passes **Bailout**), the distance is `shap
 
 ## Fold steps
 
-Stack A has 12 slots and Stack B has 8. Pick a fold for **Step 1**, and **Step 2** appears below it, and so on. Setting a step to *Off* ends the stack there. Every fold also has a **Colour Weight** (see *Colour*).
+Stack A has 12 slots and Stack B has 8. Pick a fold for **Step 1**, and **Step 2** appears below it, and so on. Setting a step to *Off* ends the stack there. Every step also has a **Colour Weight** (see *Colour*) and **Runs on Iterations [From, Until)**: a step outside its range is skipped. So one stack can build the coarse shape with one fold set and the fine detail with another (the *Two-Phase Flake* preset runs octahedral folds for iterations 0–2, then Sierpinski from 3 on). Ranges are uniforms, so changing them never recompiles.
 
 | Step | What it does | Compiled option |
 |---|---|---|
@@ -57,17 +57,31 @@ Stack A has 12 slots and Stack B has 8. Pick a fold for **Step 1**, and **Step 2
 | **Edge Fold** | z → E − \|E − z\| per axis (E = 0 leaves that axis alone). | — |
 | **Box Fold** | Mandelbox fold: clamp to ±limit and reflect. | — |
 | **Dihedral N-Fold** | Mirror into one of N angular sectors around an axis. | Axis: X, Y, Z |
-| **Sphere Inversion** | z → c + (z − c)·R²/\|z − c\|², blended by **Amount**, then shifted by **A** and scaled by **S**, for iterations **From … Until**. Not a fold: see below. | — |
+| **Sphere Inversion** | z → c + (z − c)·R²/\|z − c\|², blended by **Amount**, then shifted by **A** and scaled by **S**. Not a fold: see below. | — |
+| **Tetrahedral Planes** | Reflect into one cell of the 24-element tetrahedral group Td (mirrors x = y, y = z, y = −z, four passes). | — |
+| **Chiral Tetrahedral (T) / Octahedral (O) / Icosahedral (I)** | The mirror fold, then one more reflection when the count is odd, so the net map is a rotation: the 12 / 24 / 60 rotations of the group, without mirrors. Handed, twisted shapes (snub-like). Estimate: see below. | — |
+| **Cyclic N-Fold** | Rotate into one of N sectors around an axis (no mirror): a pinwheel. Estimate. | Axis: X, Y, Z |
+| **Kleinian (Knighty)** | Box fold to ±L, invert inside the sphere of radius R only (k = max(R²/\|z\|², 1)), add C. Use Scale 1 and the Kleinian shape. Estimate. | — |
 
 **Compilation.** The step types and their compiled options make up the program key (`engine/renderer.js` `specKey`), so each stack compiles once to straight-line GLSL with only the code it needs. Plane normals, limits, angles, N, strengths and colour weights are uniforms, so dragging a slider never recompiles. Programs compile in the background where `KHR_parallel_shader_compile` exists, and the previous image stays up meanwhile.
 
-**Symmetry groups.** *Apply a symmetry group to Stack A…* (top of the Fold Stack A panel) writes a stack whose mirrors generate that point group, plus a centre and shape that suit it: tetrahedral Td (Sierpinski), octahedral Oh (face-, edge- and vertex-centred), cubic Menger, icosahedral Ih, orthorhombic D2h, tetragonal D4h, and hexagonal, trigonal and pentagonal prisms (D6h, D3h, D5h). It changes Stack A only and can be undone.
+**Wythoff centre.** *Rotation & Scale → Centre → Wythoff (cell corners)* places the scale centre by weights on the three corners of one mirror cell: Tetrahedral (Td), Octahedral (Oh) or Icosahedral (Ih), matching the Tetrahedral, Octahedral and Icosahedral Planes folds and their chiral versions. One weight puts the centre on a corner (a vertex-type layout), two put it along an edge (truncated forms), three put it inside (omnitruncated forms; with a chiral fold, snub forms). **Centre Distance** sets |C|. The panel names each corner (e.g. 5-fold vertex, 2-fold edge midpoint, 3-fold face centre), and the tests check that every Wythoff centre lies in its fold's cell. Stack B keeps its own manual centre.
+
+**Symmetry groups.** *Apply a symmetry group to Stack A…* (top of the Fold Stack A panel) writes a stack whose mirrors generate that point group, plus a centre and shape that suit it: tetrahedral Td (Sierpinski), octahedral Oh (face-, edge- and vertex-centred), cubic Menger, icosahedral Ih, orthorhombic D2h, tetragonal D4h, and hexagonal, trigonal and pentagonal prisms (D6h, D3h, D5h). The chiral groups T (23), O (432) and I (532), Td with its full mirror cell, and a C5h pinwheel are in the list too. It changes Stack A only (and switches the centre back to Manual) and can be undone.
 
 ## Exact distance estimate
 
 Every fold step is 1-Lipschitz (a reflection, a fold, a rotation, or a partial reflection with strength between 0 and 1). So an iteration stretches space by exactly |s|, the running derivative is exactly Π|s|, and `shape(F(p)) / dr` is a true lower bound on the distance. **Step Factor** defaults to 1.0, and that is safe. The tests check that every step and option is 1-Lipschitz and that every preset's DE is 1-Lipschitz in p.
 
-**Sphere Inversion is the exception on purpose.** It is Kyma's two inversions in one step:
+**Some steps are estimates on purpose** (they're listed in `ESTIMATE_TYPES`):
+
+- **Sphere Inversion** and the **Kleinian** step stretch space by R²/|z|², which is unbounded near the centre. They track that stretch in dr. It is the same in every direction (conformal), so this is Mandelbulber's first-order estimate.
+- **Chiral** folds and **Cyclic N-Fold** rotate instead of reflect. Neighbouring regions get different rotations, so the map jumps across the seams between them. Away from the seams it is still exact.
+- The **Kleinian** seed shape is Knighty's heuristic.
+
+While any of these is in use, a note under *Fold Stack A* names them and shows the current Step Factor. Every estimate preset uses 0.8–0.9, and the tests measure that under 1% of steps at that factor land inside the surface (the worst, Twisted Icosahedral, is 0.3%).
+
+Sphere Inversion is Kyma's two inversions in one step:
 
 | Kyma | Eidos Sphere Inversion |
 |---|---|
@@ -79,7 +93,10 @@ The tests check it against both of Kyma's formulas. An inversion stretches space
 
 The other exception is the Menger z-trick's **Shift** mode. That is Mandelbulber's own form, and it jumps. It gives the same DE as **Mirror** whenever an Abs on z comes next iteration, as in the Menger sponge (the tests check this too). Eidos uses Shift only for exact Mandelbulber imports.
 
-**DE Shape** is the seed solid the folds carve: **Sphere** (radius = Size; 0 = a point, Mandelbulber's KIFS DE), **Box** (half-size × Box Proportions), **Octahedron** or **Tetrahedron**. Use a shape that contains the attractor (Sierpinski → tetrahedron, Menger → box, the symmetry presets set one). Then the approximations nest, and the bailout shortcut stays a lower bound too.
+**DE Shape** is the seed solid the folds carve:
+- **Sphere** (radius = Size; 0 = a point, Mandelbulber's KIFS DE), **Box** (half-size × Box Proportions), **Shell** (hollow sphere, Thickness), **Box Frame** (the box's twelve edges: the wireframe-polyhedron look), **Axis Cross** (three rods ±Size along x, y, z), **Torus** (ring of radius Size around the chosen axis), **Capsule** (rod ±Size along the axis). All exact distances.
+- **Octahedron**, **Tetrahedron**: plane-distance lower bounds (never overshoot).
+- **Kleinian (Knighty)**: max(|z.xy| − Offset, |z.xy|·|z_z| / |z|), the shape of the pseudo-Kleinian DE. An estimate. Use a shape that contains the attractor (Sierpinski → tetrahedron, Menger → box, the symmetry presets set one). Then the approximations nest, and the bailout shortcut stays a lower bound too.
 
 ## Hybrid · Stack B
 
@@ -93,7 +110,7 @@ Pre-rotation, spin, variation and the DE shape are shared. Turning Stack B on co
 
 ## Presets
 
-Classic KIFS (Sierpinski tetrahedron, Menger sponge, octahedral flake, icosahedral flake, dodecahedral cage, icosahedral dust), rotated KIFS (Knighty's cathedral, twisted Sierpinski, kaleido coral), symmetry groups (hexagonal drum, edge-folded dust), per-iteration variation (spun sponge, drifting flake), sphere inversion (inverted sponge, feathered Sierpinski), and hybrids (Menger ⇄ Sierpinski, an AAB pattern). On a first visit the app opens on the Sierpinski tetrahedron.
+Classic KIFS (Sierpinski tetrahedron, Menger sponge, octahedral flake, icosahedral flake, dodecahedral cage, icosahedral dust), rotated KIFS (Knighty's cathedral, twisted Sierpinski, kaleido coral), symmetry groups (hexagonal drum, edge-folded dust), per-iteration variation (spun sponge, drifting flake), sphere inversion (inverted sponge, feathered Sierpinski), Wythoff centres and iteration ranges (truncated octahedral flake, two-phase flake), chiral folds (snub octahedral flake, twisted icosahedral, pentagonal pinwheel), seed shapes (wireframe sponge, ring flake), Kleinian (pseudo-Kleinian caves), and hybrids (Menger ⇄ Sierpinski, an AAB pattern). On a first visit the app opens on the Sierpinski tetrahedron.
 
 **Rebirth** builds a random stack from a symmetry group, sometimes with an extra custom plane, rotation or edge fold, and random rotations. It is checked on the CPU so the camera is outside the shape and some of it is in view. **Evolve** and the **Mutation Grid** mutate only the controls that are live in the current stack.
 
@@ -468,7 +485,7 @@ The tests check that it compiles in every render mode, that it is 1-Lipschitz, a
 npm test                                  # schema, camera, fold steps (Lipschitz, group cells), exact DE,
                                           # symmetry invariance, spec keys, hybrids, colour, sequencer,
                                           # codec, materials, lights, repetition, Mandelbulber import,
-                                          # evolve/rebirth, zip — and glslangValidator over 111 programs
+                                          # evolve/rebirth, zip — and glslangValidator over 153 programs
 python3 -m http.server 8000 & node tests/browser.mjs
 ```
 
@@ -481,6 +498,8 @@ python3 -m http.server 8000 & node tests/browser.mjs
 - the layouts at 390×844 and 844×390 with touch (docked view, tabs, one-finger orbit) and at 1440×900 desktop.
 
 ## Changelog
+
+**1.2.0** — Every step gets an iteration range (From / Until). Wythoff centre picker (Td / Oh / Ih mirror-cell corners). New steps: Tetrahedral Planes (Td), Chiral Tetrahedral / Octahedral / Icosahedral, Cyclic N-Fold, Kleinian (Knighty). New seed shapes: Shell, Box Frame, Axis Cross, Torus, Capsule, Kleinian. Nine presets and five symmetry groups. The estimate note now covers every estimate-making step and shape. Tests: group cell sizes, chiral folds are rotations and their shapes are handed, Kleinian matches Knighty's DE exactly, Wythoff centres stay in their cell, the new shapes are exact, and the overshoot rate of every estimate preset is measured.
 
 **1.1.0** — **Sphere Inversion** fold step: Kyma's inversion and its Mandelbulber-style inversion in one step (centre, radius, Amount, shift, scale, DE Limit, iteration range), with tracked derivative, a live "DE is an estimate" note, and two presets (Inverted Sponge, Feathered Sierpinski). Tests: parity with both Kyma formulas, tracked factor = true stretch, GPU/CPU parity.
 

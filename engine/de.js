@@ -7,7 +7,7 @@
 import { fractalRotation, objectTransform, mat3MulVec } from './vec.js';
 import { cameraBasis, pixelRay } from './camera.js';
 import { effectiveIterations } from './params.js';
-import { stackOf, cpuStack, shapeFn, hybridUsesB } from './kifs.js';
+import { stackOf, cpuStack, shapeFn, hybridUsesB, stackCenter } from './kifs.js';
 
 const mv = (M, z) => [M[0] * z[0] + M[1] * z[1] + M[2] * z[2], M[3] * z[0] + M[4] * z[1] + M[5] * z[2], M[6] * z[0] + M[7] * z[1] + M[8] * z[2]];
 const mm = (a, b) => { const o = []; for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) o.push(a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]); return o; };
@@ -27,7 +27,7 @@ export function makeDE(v, scaleOverride) {
   const SP = fractalRotation(v.spinX, v.spinY, v.spinZ);
   const spinOn = v.spinX !== 0 || v.spinY !== 0 || v.spinZ !== 0;
   const sA = scaleOverride ?? v.scale, sB = v.scaleB ?? 2;
-  const cA = [v.centerX, v.centerY, v.centerZ], cB = [v.centerBX ?? 1, v.centerBY ?? 1, v.centerBZ ?? 1];
+  const cA = stackCenter(v), cB = [v.centerBX ?? 1, v.centerBY ?? 1, v.centerBZ ?? 1];
   const dS = v.scaleStep || 0, dC = [v.centerStepX || 0, v.centerStepY || 0, v.centerStepZ || 0];
   const bail2 = (v.bailout ?? 100) ** 2;
   const rotStart = v.rotStart | 0, colIters = v.colorIters ?? 40, src = v.colorSource | 0, fcw = v.foldColW ?? 1;

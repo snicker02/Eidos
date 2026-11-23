@@ -26,7 +26,7 @@
 // side: which dock the group lives in. Left = the formula (what the fractal
 // IS); right = the scene and output (how it's seen, animated and exported).
 import { GRADIENT_NAMES, WRAP_MODES, CUSTOM_GRADIENT } from './gradients.js';
-import { STEP_NAMES, ABS_MASKS, SWAP_MODES, ROT_PIVOTS, AXES, ZTRICK_MODES, STACKS, SHAPES, HYBRID_MODES, sid } from './kifs.js';
+import { STEP_NAMES, ABS_MASKS, SWAP_MODES, ROT_PIVOTS, AXES, ZTRICK_MODES, STACKS, SHAPES, HYBRID_MODES, WYTHOFF, CENTER_MODES, sid } from './kifs.js';
 
 export const GROUPS = [
   { id: 'presets', side: 'left',  title: 'Presets', accent: true, open: true },
@@ -75,7 +75,7 @@ function slotParams(s, k) {
     { id: id('swap'), label: 'Swaps', type: 'select', group: g, options: SWAP_MODES, def: 0, ...own(2) },
     { id: id('zm'), label: 'Mode', type: 'select', group: g, options: ZTRICK_MODES, def: 0, ...own(7) },
     { id: id('pv'), label: 'Pivot', type: 'select', group: g, options: ROT_PIVOTS, def: 0, ...own(8) },
-    { id: id('ax'), label: 'Axis', type: 'select', group: g, options: AXES, def: 2, ...own(11) },
+    { id: id('ax'), label: 'Axis', type: 'select', group: g, options: AXES, def: 2, ...own([11, 17]) },
     { id: id('nx'), label: 'NX', type: 'range', group: g, min: -1, max: 1, step: 0.001, def: 1, row: id('pn'), mutate: true, fine: true, ...own(6) },
     { id: id('ny'), label: 'NY', type: 'range', group: g, min: -1, max: 1, step: 0.001, def: 1, row: id('pn'), mutate: true, fine: true, ...own(6) },
     { id: id('nz'), label: 'NZ', type: 'range', group: g, min: -1, max: 1, step: 0.001, def: 0, row: id('pn'), mutate: true, fine: true, ...own(6) },
@@ -84,10 +84,10 @@ function slotParams(s, k) {
     { id: id('ra'), label: 'α (Z)', type: 'range', group: g, min: -180, max: 180, step: 0.01, def: 0, row: id('r'), mutate: true, fine: true, ...own(8) },
     { id: id('rb'), label: 'β (Y)', type: 'range', group: g, min: -180, max: 180, step: 0.01, def: 0, row: id('r'), mutate: true, fine: true, ...own(8) },
     { id: id('rg'), label: 'γ (X)', type: 'range', group: g, min: -180, max: 180, step: 0.01, def: 0, row: id('r'), mutate: true, fine: true, ...own(8) },
-    { id: id('lx'), label: 'LX', type: 'range', group: g, min: 0, max: 4, step: 0.001, def: 1, hardMin: 0, row: id('l'), mutate: true, fine: true, ...own([9, 10]) },
-    { id: id('ly'), label: 'LY', type: 'range', group: g, min: 0, max: 4, step: 0.001, def: 1, hardMin: 0, row: id('l'), mutate: true, fine: true, ...own([9, 10]) },
-    { id: id('lz'), label: 'LZ', type: 'range', group: g, min: 0, max: 4, step: 0.001, def: 1, hardMin: 0, row: id('l'), mutate: true, fine: true, ...own([9, 10]) },
-    { id: id('n'), label: 'Sectors N', type: 'range', group: g, min: 1, max: 16, step: 1, def: 6, int: true, hardMin: 1, hardMax: 64, ...own(11) },
+    { id: id('lx'), label: 'LX', type: 'range', group: g, min: 0, max: 4, step: 0.001, def: 1, hardMin: 0, row: id('l'), mutate: true, fine: true, ...own([9, 10, 18]) },
+    { id: id('ly'), label: 'LY', type: 'range', group: g, min: 0, max: 4, step: 0.001, def: 1, hardMin: 0, row: id('l'), mutate: true, fine: true, ...own([9, 10, 18]) },
+    { id: id('lz'), label: 'LZ', type: 'range', group: g, min: 0, max: 4, step: 0.001, def: 1, hardMin: 0, row: id('l'), mutate: true, fine: true, ...own([9, 10, 18]) },
+    { id: id('n'), label: 'Sectors N', type: 'range', group: g, min: 1, max: 16, step: 1, def: 6, int: true, hardMin: 1, hardMax: 64, ...own([11, 17]) },
     // Sphere Inversion (Kyma's inversion and Mandelbulber's in one step).
     { id: id('icx'), label: 'CX', type: 'range', group: g, min: -3, max: 3, step: 0.001, def: 0, row: id('ic'), section: 'Inversion Centre c', mutate: true, fine: true, ...own(12) },
     { id: id('icy'), label: 'CY', type: 'range', group: g, min: -3, max: 3, step: 0.001, def: 0, row: id('ic'), mutate: true, fine: true, ...own(12) },
@@ -99,8 +99,14 @@ function slotParams(s, k) {
     { id: id('iaz'), label: 'AZ', type: 'range', group: g, min: -3, max: 3, step: 0.001, def: 0, row: id('ia3'), mutate: true, fine: true, ...own(12) },
     { id: id('is'), label: 'Scale S', type: 'range', group: g, min: 0.1, max: 4, step: 0.001, def: 1, row: id('isl'), mutate: true, fine: true, ...own(12) },
     { id: id('il'), label: 'DE Limit (0 = off)', type: 'range', group: g, min: 0, max: 100, step: 0.1, def: 10, hardMin: 0, row: id('isl'), ...own(12) },
-    { id: id('if'), label: 'From Iter', type: 'range', group: g, min: 0, max: 20, step: 1, def: 0, int: true, hardMin: 0, hardMax: 249, row: id('iit'), ...own(12) },
-    { id: id('iu'), label: 'Until Iter', type: 'range', group: g, min: 1, max: 40, step: 1, def: 250, int: true, hardMin: 1, hardMax: 250, row: id('iit'), ...own(12) },
+    // Kleinian (Knighty): box fold to ±L (LX/LY/LZ above), inversion radius, shift C.
+    { id: id('kr'), label: 'Inversion Radius R', type: 'range', group: g, min: 0.1, max: 3, step: 0.001, def: 1, hardMin: 0.0001, mutate: true, fine: true, ...own(18) },
+    { id: id('kcx'), label: 'CX', type: 'range', group: g, min: -2, max: 2, step: 0.001, def: 0, row: id('kc'), section: 'Then Add C', mutate: true, fine: true, ...own(18) },
+    { id: id('kcy'), label: 'CY', type: 'range', group: g, min: -2, max: 2, step: 0.001, def: 0, row: id('kc'), mutate: true, fine: true, ...own(18) },
+    { id: id('kcz'), label: 'CZ', type: 'range', group: g, min: -2, max: 2, step: 0.001, def: 0, row: id('kc'), mutate: true, fine: true, ...own(18) },
+    // Every step: the iterations it runs on, [From, Until).
+    { id: id('if'), label: 'From Iter', type: 'range', group: g, min: 0, max: 20, step: 1, def: 0, int: true, hardMin: 0, hardMax: 249, row: id('iit'), section: 'Runs on Iterations  [From, Until)', ...own(ON_TYPES) },
+    { id: id('iu'), label: 'Until Iter', type: 'range', group: g, min: 1, max: 40, step: 1, def: 250, int: true, hardMin: 1, hardMax: 250, row: id('iit'), ...own(ON_TYPES) },
     { id: id('cw'), label: 'Colour Weight', type: 'range', group: g, min: 0, max: 2, step: 0.01, def: 1, hardMin: 0, hardMax: 100, ...own(ON_TYPES) },
   ];
 }
@@ -115,9 +121,15 @@ export const PARAMS = [
 
   // ── Rotation & scale (one iteration: pre-rotation → stack → post-rotation → scale) ──
   { id: 'scale', label: 'Scale s', type: 'range', group: 'xform', min: -4, max: 4, step: 0.001, def: 2, mutate: true, fine: true },
-  { id: 'centerX', label: 'CX', type: 'range', group: 'xform', min: -3, max: 3, step: 0.001, def: 1, row: 'ctr', section: 'Scale Centre C  (z → s·(z − C) + C)', mutate: true, fine: true },
-  { id: 'centerY', label: 'CY', type: 'range', group: 'xform', min: -3, max: 3, step: 0.001, def: 1, row: 'ctr', mutate: true, fine: true },
-  { id: 'centerZ', label: 'CZ', type: 'range', group: 'xform', min: -3, max: 3, step: 0.001, def: 1, row: 'ctr', mutate: true, fine: true },
+  { id: 'ctrMode', label: 'Centre', type: 'select', group: 'xform', options: CENTER_MODES, def: 0, section: 'Scale Centre C  (z → s·(z − C) + C)' },
+  { id: 'centerX', label: 'CX', type: 'range', group: 'xform', min: -3, max: 3, step: 0.001, def: 1, row: 'ctr', gate: 'ctrMode', gateEq: 0, mutate: true, fine: true },
+  { id: 'centerY', label: 'CY', type: 'range', group: 'xform', min: -3, max: 3, step: 0.001, def: 1, row: 'ctr', gate: 'ctrMode', gateEq: 0, mutate: true, fine: true },
+  { id: 'centerZ', label: 'CZ', type: 'range', group: 'xform', min: -3, max: 3, step: 0.001, def: 1, row: 'ctr', gate: 'ctrMode', gateEq: 0, mutate: true, fine: true },
+  { id: 'wyGroup', label: 'Mirror Cell', type: 'select', group: 'xform', options: WYTHOFF.map(w => w.name), def: 1, gate: 'ctrMode', gateEq: 1 },
+  { id: 'wyA', label: 'Corner A', type: 'range', group: 'xform', min: 0, max: 1, step: 0.001, def: 1, hardMin: 0, row: 'wy', gate: 'ctrMode', gateEq: 1, mutate: true, fine: true },
+  { id: 'wyB', label: 'Corner B', type: 'range', group: 'xform', min: 0, max: 1, step: 0.001, def: 0, hardMin: 0, row: 'wy', gate: 'ctrMode', gateEq: 1, mutate: true, fine: true },
+  { id: 'wyC', label: 'Corner C', type: 'range', group: 'xform', min: 0, max: 1, step: 0.001, def: 0, hardMin: 0, row: 'wy', gate: 'ctrMode', gateEq: 1, mutate: true, fine: true },
+  { id: 'wyR', label: 'Centre Distance', type: 'range', group: 'xform', min: 0, max: 3, step: 0.001, def: 1, gate: 'ctrMode', gateEq: 1, mutate: true, fine: true },
   { id: 'preAlpha', label: 'Pre α', type: 'range', group: 'xform', min: -PI, max: PI, step: 0.001, def: 0, section: 'Pre-Rotation (before the stack)', mutate: true, fine: true },
   { id: 'preBeta', label: 'Pre β', type: 'range', group: 'xform', min: -PI, max: PI, step: 0.001, def: 0, mutate: true, fine: true },
   { id: 'preGamma', label: 'Pre γ', type: 'range', group: 'xform', min: -PI, max: PI, step: 0.001, def: 0, mutate: true, fine: true },
@@ -153,9 +165,11 @@ export const PARAMS = [
   // ── DE shape ────────────────────────────────────────────────────────────
   { id: 'shape', label: 'Shape', type: 'select', group: 'shape', options: SHAPES, def: 3 },
   { id: 'shapeR', label: 'Size', type: 'range', group: 'shape', min: 0, max: 3, step: 0.001, def: 1, hardMin: 0, mutate: true, fine: true },
-  { id: 'shapeBX', label: 'BX', type: 'range', group: 'shape', min: 0.05, max: 3, step: 0.001, def: 1, hardMin: 0, row: 'sb', section: 'Box Proportions', gate: 'shape', gateEq: 1, mutate: true },
-  { id: 'shapeBY', label: 'BY', type: 'range', group: 'shape', min: 0.05, max: 3, step: 0.001, def: 1, hardMin: 0, row: 'sb', gate: 'shape', gateEq: 1, mutate: true },
-  { id: 'shapeBZ', label: 'BZ', type: 'range', group: 'shape', min: 0.05, max: 3, step: 0.001, def: 1, hardMin: 0, row: 'sb', gate: 'shape', gateEq: 1, mutate: true },
+  { id: 'shapeT', label: 'Thickness / Offset', type: 'range', group: 'shape', min: 0.005, max: 1, step: 0.001, def: 0.1, hardMin: 0, gate: 'shape', gateEq: [4, 5, 6, 7, 8, 9], mutate: true, fine: true },
+  { id: 'shapeAx', label: 'Axis', type: 'select', group: 'shape', options: AXES, def: 2, gate: 'shape', gateEq: [7, 8] },
+  { id: 'shapeBX', label: 'BX', type: 'range', group: 'shape', min: 0.05, max: 3, step: 0.001, def: 1, hardMin: 0, row: 'sb', section: 'Box Proportions', gate: 'shape', gateEq: [1, 5], mutate: true },
+  { id: 'shapeBY', label: 'BY', type: 'range', group: 'shape', min: 0.05, max: 3, step: 0.001, def: 1, hardMin: 0, row: 'sb', gate: 'shape', gateEq: [1, 5], mutate: true },
+  { id: 'shapeBZ', label: 'BZ', type: 'range', group: 'shape', min: 0.05, max: 3, step: 0.001, def: 1, hardMin: 0, row: 'sb', gate: 'shape', gateEq: [1, 5], mutate: true },
 
   // ── Iteration ───────────────────────────────────────────────────────────
   { id: 'iterations', label: 'Iterations', type: 'range', group: 'iter', min: 1, max: 40, step: 1, def: 12, int: true, hardMin: 1, hardMax: 250 },

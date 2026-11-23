@@ -205,7 +205,7 @@ export function importMandelbulber(text) {
   const bad = used.find(x => !MAPPERS[x.id]);
   if (bad) return { ok: false, error: `Formula ${bad.id} is not one Eidos can import (supported: ${Object.entries(MB_FORMULAS).map(([k, v]) => `${v} (${k})`).join(', ')})` };
   if (used.length > 2) return { ok: false, error: `Hybrid of ${used.length} formulas; Eidos has two stacks (A and B)` };
-  const o = { hybridMode: 0, preAlpha: 0, preBeta: 0, preGamma: 0, rotStart: 0, spinX: 0, spinY: 0, spinZ: 0, scaleStep: 0, centerStepX: 0, centerStepY: 0, centerStepZ: 0, postRotC: false, shape: 0, shapeR: 0 };
+  const o = { ctrMode: 0, hybridMode: 0, preAlpha: 0, preBeta: 0, preGamma: 0, rotStart: 0, spinX: 0, spinY: 0, spinZ: 0, scaleStep: 0, centerStepX: 0, centerStepY: 0, centerStepZ: 0, postRotC: false, shape: 0, shapeR: 0 };
   let pre = null, rotStart = 0;
   try {
     used.forEach((x, i) => {

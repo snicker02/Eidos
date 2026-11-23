@@ -12,7 +12,7 @@
 // ready instead of the page hitching.
 
 import { VERT, DISPLAY_FRAG, fractalFrag, DEFAULT_SPEC } from './glsl.js';
-import { stackOf, stackKey, slotData, hybridPattern } from './kifs.js';
+import { stackOf, stackKey, slotData, hybridPattern, stackCenter } from './kifs.js';
 import { effectiveIterations } from './params.js';
 import { compileProgram, finishProgram, setUniforms, detectAccumFormat, createTarget, deleteTarget } from './gl.js';
 import { cameraBasis, lightWorldPos, extraLightPos } from './camera.js';
@@ -56,7 +56,7 @@ export function sceneUniforms(v, scaleOverride) {
     __mat: !!(v.matOn || (v.texMode | 0) > 0 || (v.creaseAmt || 0) > 0),
     u_iterations: effectiveIterations(v),
     u_scale: scaleOverride ?? v.scale,
-    u_center: [v.centerX, v.centerY, v.centerZ],
+    u_center: stackCenter(v),
     u_preRot: mat3ToColumnMajor(fractalRotation(v.preAlpha, v.preBeta, v.preGamma)),
     u_preRotOn: v.preAlpha !== 0 || v.preBeta !== 0 || v.preGamma !== 0,
     u_postRot: mat3ToColumnMajor(fractalRotation(v.alpha, v.beta, v.gamma)),
@@ -70,6 +70,8 @@ export function sceneUniforms(v, scaleOverride) {
     u_bail2: (v.bailout ?? 100) * (v.bailout ?? 100),
     u_shapeR: v.shapeR ?? 1,
     u_shapeBox: [v.shapeBX ?? 1, v.shapeBY ?? 1, v.shapeBZ ?? 1],
+    u_shapeT: v.shapeT ?? 0.1,
+    u_shapeAx: v.shapeAx ?? 2,
     // Materials & textures (glsl.js "Materials & textures").
     u_texMode: v.texMode | 0,
     u_texMap: v.texMap | 0,
