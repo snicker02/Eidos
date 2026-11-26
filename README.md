@@ -1,4 +1,4 @@
-# Eidos v1.2.0
+# Eidos v1.3.0
 
 **Eidos** (εἶδος, Greek for "form", the *eidos* in kaleidoscope) is a progressive WebGL1 raymarcher for **Kaleidoscopic IFS** (KIFS) fractals. You build each iteration from a stack of fold steps (abs, plane swaps, Sierpinski, octahedral and icosahedral mirror sets, custom planes, the Menger z-trick, rotations, edge and box folds, dihedral folds, rotation-only (chiral) folds, sphere inversion, and Knighty's pseudo-Kleinian step), and Eidos compiles that stack into a straight-line shader. Mirror folds and rotations keep the distance estimate **exact**, so Step Factor 1.0 never overshoots. Inversions, chiral folds and the Kleinian step trade that for their own looks and are tracked as estimates.
 
@@ -508,3 +508,13 @@ python3 -m http.server 8000 & node tests/browser.mjs
 ---
 
 Created with help from Claude AI
+
+## Shared image shelf
+
+The **⇄ Shelf** button opens the image shelf shared by all apps on [snicker02.github.io](https://snicker02.github.io/#shelf). It stores images in this browser only (IndexedDB), and every app on the site can read the same shelf.
+
+- **Save current** puts the current view on the shelf.
+- **Send to ↗** opens another app in a new tab with the image already loaded.
+- **Load here** brings a shelf image into this app as the environment (reflections and background), the same as Load Image. Opening the app with `?shelf=<id>` does the same on start, which is how Send to works.
+
+The shelf code lives in [`snicker02.github.io/shared/bridge.js`](https://github.com/snicker02/snicker02.github.io/blob/main/shared/bridge.js). If it can't load (for example when you're offline), the app works as before and the button is hidden.
