@@ -1,23 +1,10 @@
-// Presets, symmetry groups, Evolve / Rebirth, and the discovery-string codec.
+// Eidos's presets: KIFS scenes, symmetry groups and Rebirth's random fold
+// stacks.
 
-import { PARAMS, PARAM_BY_ID, defaults, coerce } from './params.js';
-import { viewScore } from './de.js';
-import { CUSTOM_GRADIENT, GRADIENTS } from './gradients.js';
+import { PARAMS, defaults } from './params.js';
+import { CUSTOM_GRADIENT, GRADIENTS } from '../core/engine/gradients.js';
+import { r, ri, pick } from '../core/engine/presets.js';
 import { T, STACKS, sid, stackValues, SYMMETRY_GROUPS, ESTIMATE_TYPES } from './kifs.js';
-
-const r = (a, b) => a + Math.random() * (b - a);
-const ri = n => Math.floor(Math.random() * n);
-const pick = a => a[ri(a.length)];
-const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
-
-// Is a control live for the current values? Its own gate open, and its gate's
-// control live too (visibility cascades exactly as in the panel).
-export function isActive(p, values) {
-  if (!p.gate) return true;
-  const g = values[p.gate];
-  const open = p.gateEq === undefined ? !!g : Array.isArray(p.gateEq) ? p.gateEq.includes(g) : g === p.gateEq;
-  return open && isActive(PARAM_BY_ID.get(p.gate), values);
-}
 
 // Every formula and colour parameter at its default: presets start from this so
 // nothing from the previous scene (a longer stack, a hybrid) leaks in.
@@ -100,24 +87,6 @@ export function symmetryValues(i) {
   return g ? { ...stackValues('a', g.steps), ctrMode: 0, ...g.set } : {};
 }
 
-// Small mutation of 3–5 live geometric params (~6% of each slider span).
-export function evolve(values, strength = 0.06, { exclude = [] } = {}) {
-  // Only parameters that currently do something, and always at least one real
-  // change (picking hidden params or rounding back to the same value does nothing).
-  const pool = PARAMS.filter(p => p.mutate && isActive(p, values) && !exclude.includes(p.id));
-  const out = {};
-  const count = 3 + ri(3);
-  for (let tries = 0; Object.keys(out).length < count && tries < 40; tries++) {
-    const p = pool[ri(pool.length)];
-    if (!p || p.id in out) continue;
-    const span = p.max - p.min;
-    let nv = values[p.id] + gauss() * span * strength;
-    nv = coerce(p, Math.max(p.min, Math.min(p.max, nv)));
-    if (nv !== values[p.id]) out[p.id] = nv;
-  }
-  return out;
-}
-
 // A random fold stack: a symmetry group's mirrors, sometimes with an extra
 // custom plane, rotation or edge fold, and random rotations around it.
 function randomStack() {
@@ -129,114 +98,36 @@ function randomStack() {
   return { g, steps };
 }
 
-// Fresh random geometry, validated on the CPU so you don't land inside the
-// fractal or stare at empty space. Returns { values, score, tries }.
-export function rebirth(current, tries = 24) {
-  let best = null;
-  for (let t = 0; t < tries; t++) {
-    const { g, steps } = randomStack();
-    const jit = x => x * r(0.75, 1.25) + r(-0.15, 0.15);
-    const gv = {
-      ...formulaDefaults(),
-      ...stackValues('a', steps),
-      scale: g.set.scale * r(0.85, 1.15),
-      centerX: jit(g.set.centerX), centerY: jit(g.set.centerY), centerZ: jit(g.set.centerZ),
-      shape: g.set.shape, shapeR: g.set.shapeR * r(0.8, 1.2),
-      alpha: Math.random() < 0.5 ? 0 : r(-0.5, 0.5),
-      beta: Math.random() < 0.5 ? 0 : r(-0.5, 0.5),
-      gamma: Math.random() < 0.5 ? 0 : r(-0.5, 0.5),
-      preAlpha: Math.random() < 0.7 ? 0 : r(-0.4, 0.4),
-      preBeta: Math.random() < 0.7 ? 0 : r(-0.4, 0.4),
-      preGamma: Math.random() < 0.7 ? 0 : r(-0.4, 0.4),
-      spinX: Math.random() < 0.85 ? 0 : r(-0.08, 0.08),
-      spinY: Math.random() < 0.85 ? 0 : r(-0.08, 0.08),
-      spinZ: Math.random() < 0.85 ? 0 : r(-0.08, 0.08),
-      iterations: 8 + ri(6),
-      // Chiral / cyclic steps make the DE an estimate: march a little shorter.
-      stepFactor: steps.some(x => ESTIMATE_TYPES.includes(x.t)) ? 0.8 : 1,
-      colorShift: Math.random(),
-      colorSource: pick([0, 0, 1, 2, 3]),
-      palette: (i => (i >= CUSTOM_GRADIENT ? i + 1 : i))(ri(GRADIENTS.length - 1)), // any built-in (not Custom)
-      rotX: r(-Math.PI, Math.PI), rotY: r(-0.7, 0.3),
-      rollX: 0, rollY: 0, rollZ: 0,
-      targetX: 0, targetY: 0, targetZ: 0,
-      dist: r(2.8, 6),
-    };
-    const cand = { ...current, ...gv };
-    const s = viewScore(cand, 5);
-    // Want: camera outside the surface, a healthy mix of hit and sky, not a wall in the face.
-    const fitness = (s.clearance > 0.02 ? 1 : 0) * (1 - Math.abs(s.hitFrac - 0.55)) * (1 - s.nearFrac);
-    if (!best || fitness > best.fitness) best = { values: gv, fitness, score: s, tries: t + 1 };
-    if (s.clearance > 0.02 && s.hitFrac >= 0.25 && s.hitFrac <= 0.9 && s.nearFrac < 0.2) break;
-  }
-  return best;
+// Rebirth: one random candidate (Organon scores it for visibility).
+export function rebirthCandidate() {
+  const { g, steps } = randomStack();
+  const jit = x => x * r(0.75, 1.25) + r(-0.15, 0.15);
+  const gv = {
+    ...formulaDefaults(),
+    ...stackValues('a', steps),
+    scale: g.set.scale * r(0.85, 1.15),
+    centerX: jit(g.set.centerX), centerY: jit(g.set.centerY), centerZ: jit(g.set.centerZ),
+    shape: g.set.shape, shapeR: g.set.shapeR * r(0.8, 1.2),
+    alpha: Math.random() < 0.5 ? 0 : r(-0.5, 0.5),
+    beta: Math.random() < 0.5 ? 0 : r(-0.5, 0.5),
+    gamma: Math.random() < 0.5 ? 0 : r(-0.5, 0.5),
+    preAlpha: Math.random() < 0.7 ? 0 : r(-0.4, 0.4),
+    preBeta: Math.random() < 0.7 ? 0 : r(-0.4, 0.4),
+    preGamma: Math.random() < 0.7 ? 0 : r(-0.4, 0.4),
+    spinX: Math.random() < 0.85 ? 0 : r(-0.08, 0.08),
+    spinY: Math.random() < 0.85 ? 0 : r(-0.08, 0.08),
+    spinZ: Math.random() < 0.85 ? 0 : r(-0.08, 0.08),
+    iterations: 8 + ri(6),
+    // Chiral / cyclic steps make the DE an estimate: march a little shorter.
+    stepFactor: steps.some(x => ESTIMATE_TYPES.includes(x.t)) ? 0.8 : 1,
+    colorShift: Math.random(),
+    colorSource: pick([0, 0, 1, 2, 3]),
+    palette: (i => (i >= CUSTOM_GRADIENT ? i + 1 : i))(ri(GRADIENTS.length - 1)), // any built-in (not Custom)
+    rotX: r(-Math.PI, Math.PI), rotY: r(-0.7, 0.3),
+    rollX: 0, rollY: 0, rollZ: 0,
+    targetX: 0, targetY: 0, targetZ: 0,
+    dist: r(2.8, 6),
+  };
+  return gv;
 }
-
-// ── Discovery string ───────────────────────────────────────────────────────
-// EIDOS1:<base64url(JSON of non-default values)>
-
-export const PREFIX = 'EIDOS1:';
-
-const b64urlEncode = str => {
-  const bytes = new TextEncoder().encode(str);
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-};
-const b64urlDecode = s => {
-  s = s.replace(/-/g, '+').replace(/_/g, '/');
-  while (s.length % 4) s += '=';
-  const bin = atob(s);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
-};
-
-const round = x => (typeof x === 'number' ? Number(x.toPrecision(7)) : x);
-
-export function encodeDiscovery(values) {
-  const d = defaults();
-  const o = {};
-  for (const p of PARAMS) {
-    const v = values[p.id];
-    if (v !== d[p.id]) o[p.id] = round(v);
-  }
-  return PREFIX + b64urlEncode(JSON.stringify(o));
-}
-
-// Hook for renamed parameters in later versions (none yet). Unknown keys pass through.
-export function migrateLegacy(obj) { return obj; }
-
-// Returns a full, validated value set (defaults filled in) or throws.
-export function decodeDiscovery(str) {
-  str = String(str).trim();
-  let obj;
-  if (str.startsWith(PREFIX)) obj = JSON.parse(b64urlDecode(str.slice(PREFIX.length)));
-  else if (str.startsWith('{')) {
-    const j = JSON.parse(str);
-    obj = j.params ?? j; // also accept a project file pasted in
-  } else throw new Error('Not a discovery string');
-  if (!obj || typeof obj !== 'object') throw new Error('Malformed discovery string');
-  obj = migrateLegacy(obj);
-  const out = defaults();
-  for (const id in obj) {
-    const p = PARAM_BY_ID.get(id);
-    if (!p) continue;
-    const v = coerce(p, obj[id]);
-    if (v !== undefined) out[id] = v;
-  }
-  return out;
-}
-
-export const PROJECT_VERSION = 2;
-
-export function makeProject(values, keys) {
-  return { app: 'eidos', version: PROJECT_VERSION, params: { ...values }, keyframes: keys };
-}
-
-export function parseProject(text) {
-  const j = JSON.parse(text);
-  if (!j || typeof j !== 'object') throw new Error('Not a project file');
-  const params = decodeDiscovery(JSON.stringify(j.params ?? {}));
-  return { params, keyframes: Array.isArray(j.keyframes) ? j.keyframes.map(migrateLegacy) : [] };
-}
+export const REBIRTH_TARGET = { hit: 0.55, lo: 0.25, hi: 0.9 };

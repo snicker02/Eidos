@@ -1,17 +1,21 @@
-# Eidos v1.3.0
+# Eidos v1.4.0
 
 **Eidos** (εἶδος, Greek for "form", the *eidos* in kaleidoscope) is a progressive WebGL1 raymarcher for **Kaleidoscopic IFS** (KIFS) fractals. You build each iteration from a stack of fold steps (abs, plane swaps, Sierpinski, octahedral and icosahedral mirror sets, custom planes, the Menger z-trick, rotations, edge and box folds, dihedral folds, rotation-only (chiral) folds, sphere inversion, and Knighty's pseudo-Kleinian step), and Eidos compiles that stack into a straight-line shader. Mirror folds and rotations keep the distance estimate **exact**, so Step Factor 1.0 never overshoots. Inversions, chiral folds and the Kleinian step trade that for their own looks and are tracked as estimates.
 
-It is the sibling of [Kyma](https://github.com/snicker02/Kyma) and runs on Kyma's engine: progressive rendering, path tracing, volumetric glow, three lights with click-to-place, materials and textures, repetition, deep zoom, the mutation grid, Evolve, keyframe animation, MP4 / WebM video and the phone tab layout. Only the formula layer is new. No dependencies, no build step.
+It is the sibling of [Kyma](https://github.com/snicker02/Kyma). Both run on [**Organon**](https://github.com/snicker02/Organon), the shared engine: progressive rendering, path tracing, volumetric glow, three lights with click-to-place, materials and textures, repetition, deep zoom, the mutation grid, Evolve, keyframe animation, MP4 / WebM video and the phone tab layout. Eidos is the KIFS formula module (`formula/`), and Organon is included as a git submodule at `core/`. No dependencies, no build step.
 
 ## Run
 
-ES modules need a local server, because `file://` blocks module imports:
+Clone with the engine. ES modules also need a local server, because `file://` blocks module imports:
 
 ```
+git clone --recurse-submodules https://github.com/snicker02/Eidos.git
+cd Eidos
 python3 -m http.server 8000
 # open http://localhost:8000
 ```
+
+If you already cloned without `--recurse-submodules`, run `git submodule update --init`. To move Eidos to a newer engine, run `git submodule update --remote core` on a branch, test, and commit the bump.
 
 ## Layout
 
@@ -63,7 +67,7 @@ Stack A has 12 slots and Stack B has 8. Pick a fold for **Step 1**, and **Step 2
 | **Cyclic N-Fold** | Rotate into one of N sectors around an axis (no mirror): a pinwheel. Estimate. | Axis: X, Y, Z |
 | **Kleinian (Knighty)** | Box fold to ±L, invert inside the sphere of radius R only (k = max(R²/\|z\|², 1)), add C. Use Scale 1 and the Kleinian shape. Estimate. | — |
 
-**Compilation.** The step types and their compiled options make up the program key (`engine/renderer.js` `specKey`), so each stack compiles once to straight-line GLSL with only the code it needs. Plane normals, limits, angles, N, strengths and colour weights are uniforms, so dragging a slider never recompiles. Programs compile in the background where `KHR_parallel_shader_compile` exists, and the previous image stays up meanwhile.
+**Compilation.** The step types and their compiled options make up the program key (`specKey` in `formula/glsl.js`), so each stack compiles once to straight-line GLSL with only the code it needs. Plane normals, limits, angles, N, strengths and colour weights are uniforms, so dragging a slider never recompiles. Programs compile in the background where `KHR_parallel_shader_compile` exists, and the previous image stays up meanwhile.
 
 **Wythoff centre.** *Rotation & Scale → Centre → Wythoff (cell corners)* places the scale centre by weights on the three corners of one mirror cell: Tetrahedral (Td), Octahedral (Oh) or Icosahedral (Ih), matching the Tetrahedral, Octahedral and Icosahedral Planes folds and their chiral versions. One weight puts the centre on a corner (a vertex-type layout), two put it along an edge (truncated forms), three put it inside (omnitruncated forms; with a chiral fold, snub forms). **Centre Distance** sets |C|. The panel names each corner (e.g. 5-fold vertex, 2-fold edge midpoint, 3-fold face centre), and the tests check that every Wythoff centre lies in its fold's cell. Stack B keeps its own manual centre.
 
@@ -440,42 +444,31 @@ Every slider, dropdown and colour has a **↺** button beside its value that set
 ## Files
 
 ```
-index.html          docked three-column shell
-css/style.css       all styling
-main.js             wiring: loop, input, docks, exports, history, sequencer UI
-engine/
+index.html          docked three-column shell (styles: core/css/style.css)
+main.js             entry point: installs the formula, then loads the Organon app shell
+formula/            Eidos's formula module (the Organon contract, see core/README.md)
+  index.js          the formula object: names, presets menu, hooks
   kifs.js           fold-step library: GLSL emitter + CPU port side by side, shapes, schedules, symmetry groups
-  params.js         parameter schema (single source of truth; group → dock side; fold-stack slots generated)
-  glsl.js           shader sources; fractalFrag(spec) specialises per fold stack
-  renderer.js       sceneUniforms, spec keys, program cache, progressive ping-pong accumulation
+  params.js         left-dock parameter schema (fold-stack slots generated)
+  glsl.js           formula uniforms, mapLocal(); fold stacks → specialised program, spec keys
+  uniforms.js       formula uniforms + program-spec data (per-slot uniforms for the live steps)
   de.js             CPU distance estimator (autofocus, Rebirth, picking, tests)
-  presets.js        presets, symmetry groups, Evolve, Rebirth, discovery-string codec
-  mbimport.js       Mandelbulber .fract importer (Kaleidoscopic IFS, Menger Sponge, Sierpinski 3D, hybrids)
-  state.js          observable store; `version` drives accumulation resets
-  gl.js             raw WebGL1 helpers, float-target detection
-  camera.js         orbit / fly / roll camera basis
-  sequencer.js      keyframes: Catmull-Rom / ease, loop, ping-pong
-  export.js         tiled multi-sample PNG rendering
-  zip.js            store-only ZIP writer for frame sequences
-  video.js          WebCodecs encoder wrapper: codec/level selection, bitrate presets
-  mux.js            dependency-free MP4 (H.264) and WebM (VP8/VP9) muxers
-  gradients.js      gradient library, OKLab blending, modifiers → 256-texel LUT
-  environment.js    procedural sky presets, image → power-of-two env texture
-  textures.js       tileable procedural material textures, image → power-of-two texture
-  vec.js            vector/matrix helpers
-ui/panel.js         builds both docks from the schema (gating cascades)
-ui/mutation.js      mutation grid: breeding, per-tile live rendering
-ui/mobiletabs.js    phone layout: sections as tabs under the viewer
+  presets.js        presets, symmetry groups, Rebirth's random stacks
+  mbimport.js       .fract import of Kaleidoscopic IFS, Menger Sponge, Sierpinski 3D, hybrids (the scene part is Organon's)
+  ui.js             symmetry-group menu, estimate warning, step / Wythoff / schedule descriptions
+core/               Organon engine (git submodule): renderer, camera, scene params, UI, sequencer,
+                    export, video, .fract scene import …  — see core/README.md
 tests/run.mjs       node logic tests      (npm test)
 tests/browser.mjs   headless-GPU checks   (dev only, needs Playwright)
+tests/lib.mjs       the formula on the engine, under the names the tests use
 tests/mb_reference.mjs  Mandelbulber formula ports used by the import tests
 tests/fixtures/     .fract files for the import tests
 ```
 
 **Adding a fold step type:**
-1. Add its name to `STEP_NAMES` and a description to `STEP_DESC` (`engine/kifs.js`).
+1. Add its name to `STEP_NAMES` and a description to `STEP_DESC` (`formula/kifs.js`).
 2. Write its GLSL in `glslBody()` and the same maths in `cpuStep()`, side by side.
-3. If it needs numbers, give them slot fields in `slotParams()` (`params.js`) and pack them into `p` / `q` in `slotData()`.
+3. If it needs numbers, give them slot fields in `slotParams()` (`formula/params.js`) and pack them into `p` / `q` in `slotData()`.
 
 The tests check that it compiles in every render mode, that it is 1-Lipschitz, and (in the browser) that the GPU agrees with the CPU.
 
@@ -498,6 +491,8 @@ python3 -m http.server 8000 & node tests/browser.mjs
 - the layouts at 390×844 and 844×390 with touch (docked view, tabs, one-finger orbit) and at 1440×900 desktop.
 
 ## Changelog
+
+**1.4.0** — Now runs on [Organon](https://github.com/snicker02/Organon) 1.0.0, the engine shared with Kyma, as a git submodule at `core/`. The KIFS formula moved to `formula/`. There is no change to how Eidos looks or works: every preset renders pixel-identical images, and old links and projects load the same.
 
 **1.2.0** — Every step gets an iteration range (From / Until). Wythoff centre picker (Td / Oh / Ih mirror-cell corners). New steps: Tetrahedral Planes (Td), Chiral Tetrahedral / Octahedral / Icosahedral, Cyclic N-Fold, Kleinian (Knighty). New seed shapes: Shell, Box Frame, Axis Cross, Torus, Capsule, Kleinian. Nine presets and five symmetry groups. The estimate note now covers every estimate-making step and shape. Tests: group cell sizes, chiral folds are rotations and their shapes are handed, Kleinian matches Knighty's DE exactly, Wythoff centres stay in their cell, the new shapes are exact, and the overshoot rate of every estimate preset is measured.
 
