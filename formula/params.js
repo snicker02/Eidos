@@ -145,9 +145,9 @@ export const FORMULA_PARAMS = [
   { id: 'polyF2', label: 'Faces B', type: 'bool', group: 'shape', def: true, row: 'pf' },
   { id: 'polyF3', label: 'Faces C', type: 'bool', group: 'shape', def: true, row: 'pf' },
   { id: 'polyE', label: 'Edges', type: 'bool', group: 'shape', def: false, row: 'pe' },
-  { id: 'polyER', label: 'Edge Radius', type: 'range', group: 'shape', min: 0, max: 0.3, step: 0.0005, def: 0.03, hardMin: 0, row: 'pe', fine: true },
+  { id: 'polyER', label: 'Edge R', type: 'range', group: 'shape', min: 0, max: 0.3, step: 0.0005, def: 0.03, hardMin: 0, row: 'pe', fine: true },
   { id: 'polyV', label: 'Vertices', type: 'bool', group: 'shape', def: false, row: 'pv' },
-  { id: 'polyVR', label: 'Vertex Radius', type: 'range', group: 'shape', min: 0, max: 0.5, step: 0.0005, def: 0.08, hardMin: 0, row: 'pv', fine: true },
+  { id: 'polyVR', label: 'Vertex R', type: 'range', group: 'shape', min: 0, max: 0.5, step: 0.0005, def: 0.08, hardMin: 0, row: 'pv', fine: true },
 
   // Shapes at every level: a second shape joined at the start of each iteration.
   { id: 'lvMode', label: 'Level Shapes', type: 'select', group: 'shape', options: LEVEL_MODES, def: 0, interp: 'step', section: 'Shapes at Every Level' },
