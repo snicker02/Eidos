@@ -60,10 +60,17 @@ void main() { float tr; float d = map(u_p, tr); gl_FragColor = pack(clamp(d / 16
   const px = new Uint8Array(4);
   // Every step type (and compile option) after an Abs, every preset, hybrids,
   // variation, shapes, object transform and repetition.
-  const OPTS = { 1: 7, 2: 4, 7: 2, 8: 2, 11: 3, 17: 3 };
+  const OPTS = { 1: 7, 2: 4, 7: 2, 8: 2, 11: 3, 17: 3, 20: 5 };
   const stepSets = [];
   for (let t = 1; t < STEP_NAMES.length; t++) for (let o = 0; o < (OPTS[t] || 1); o++)
-    stepSets.push([`${STEP_NAMES[t].split(' ')[0]} ${o}`.padEnd(14), { ...BIOMES.octa.v, ...stackValues('a', [{ t: T.ABS, abs: 1 }, { t, abs: o, swap: o, zm: o, pv: o, ax: o, nx: 0.6, ny: -0.3, nz: 0.7, d: 0.15, k: 0.8, ra: 25, rb: -15, rg: 40, lx: 0.7, ly: 0.9, lz: 0.6, n: 5 }]), centerY: 0.4, centerZ: 0.3, shape: 0, shapeR: 0.8, iterations: 8 }]);
+    stepSets.push([`${STEP_NAMES[t].split(' ')[0]} ${o}`.padEnd(14), { ...BIOMES.octa.v, ...stackValues('a', [{ t: T.ABS, abs: 1 }, { t, abs: o, swap: o, zm: o, pv: o, ax: o, fp: o, fr: 0.9, nx: 0.6, ny: -0.3, nz: 0.7, d: 0.15, k: 0.8, ra: 25, rb: -15, rg: 40, lx: 0.7, ly: 0.9, lz: 0.6, n: 5 }]), centerY: 0.4, centerZ: 0.3, shape: 0, shapeR: 0.8, iterations: 8 }]);
+  // Smooth variants (1.5.0).
+  for (const [t, o] of [[1, 0], [1, 3], [2, 0], [2, 2], [3, 0], [4, 0], [6, 0], [7, 0]])
+    stepSets.push([`smooth ${STEP_NAMES[t].split(' ')[0]} ${o}`.padEnd(14), { ...BIOMES.octa.v, ...stackValues('a', [{ t: T.ABS, abs: 1 }, { t, abs: o, swap: o, zm: o, sm: true, sk: 0.07, nx: 0.6, ny: -0.3, nz: 0.7, d: 0.15, k: 0.8 }]), centerY: 0.4, centerZ: 0.3, shape: 0, shapeR: 0.8, iterations: 8 }]);
+  // Level shapes (every mode) and polyhedra (every cell, every part).
+  for (let m = 1; m <= 4; m++) stepSets.push([`level mode ${m}`, { ...BIOMES.octa.v, lvMode: m, lvShape: [7, 0, 10, 1][m - 1], lvR: 0.45, lvT: 0.05, lvAx: m % 3, lvOX: 0.5, lvOY: 0.2, lvK: 0.2, lvCol: 0.3, lvFrom: 1, lvUntil: 6 }]);
+  for (let sh = 10; sh <= 13; sh++) stepSets.push([`shape ${sh}`, { ...BIOMES.octa.v, shape: sh, shapeR: 0.9, polyA: 0.4, polyB: 0.7, polyC: 0.3, polyE: true, polyV: sh === 12, polyF2: sh !== 13 }]);
+  stepSets.push(['poly level Ih', { ...BIOMES.polyornament.v }]);
   const sets = [['default', {}], ...Object.entries(BIOMES).map(([k, b]) => [k, b.v]), ...stepSets,
     ['shape box', { ...BIOMES.menger.v, shape: 1, shapeBX: 0.6, shapeBY: 1.3, shapeBZ: 0.9 }],
     ...[4, 5, 6, 7, 8].map(sh => [`shape ${sh}`.padEnd(14), { ...BIOMES.octa.v, shape: sh, shapeR: 0.8, shapeT: 0.1, shapeAx: sh % 3, shapeBX: 1.1, shapeBY: 0.8 }]),

@@ -6,7 +6,7 @@
 
 import { fractalRotation } from '../core/engine/vec.js';
 import { effectiveIterations } from '../core/engine/params.js';
-import { stackOf, cpuStack, shapeFn, hybridUsesB, stackCenter } from './kifs.js';
+import { stackOf, cpuStack, shapeFn, hybridUsesB, stackCenter, levelShapeValues, smin, POLY_SHAPES } from './kifs.js';
 export { makeDE, repHash, repeatMap, marchInfo, march, probePixel, pickPixel, viewScore, suggestVolumeShell } from '../core/engine/de.js';
 
 const mv = (M, z) => [M[0] * z[0] + M[1] * z[1] + M[2] * z[2], M[3] * z[0] + M[4] * z[1] + M[5] * z[2], M[6] * z[0] + M[7] * z[1] + M[8] * z[2]];
@@ -32,11 +32,17 @@ export function localDE(v, scaleOverride) {
   const bail2 = (v.bailout ?? 100) ** 2;
   const rotStart = v.rotStart | 0, colIters = v.colorIters ?? 40, src = v.colorSource | 0, fcw = v.foldColW ?? 1;
   const shape = shapeFn(v);
+  const polySeed = POLY_SHAPES.includes(v.shape | 0);
+  // Shapes at every level (mirrors LEVEL_STEP / LEVEL_JOIN in glsl.js).
+  const lvM = v.lvMode | 0, lvShape = lvM ? shapeFn(levelShapeValues(v)) : null;
+  const lvO = [v.lvOX || 0, v.lvOY || 0, v.lvOZ || 0], lvK = v.lvK ?? 0.1, lvCol = v.lvCol ?? 0;
+  const lvFrom = v.lvFrom ?? 0, lvUntil = v.lvUntil ?? 250;
 
   const map = p => {
     let z = [p[0], p[1], p[2]], dr = 1, trap = 1e10;
     let spin = I3;
     const acc = { fold: 0, colOn: 1, traps: {}, w: {} };
+    let lv = lvM >= 3 ? -1e10 : 1e10, lvI = 0, lvWin = 0;
     for (let i = 0; i < iters; i++) {
       acc.colOn = i < colIters ? 1 : 0;
       const rotOn = i >= rotStart;
@@ -50,6 +56,14 @@ export function localDE(v, scaleOverride) {
       dr *= acc.dr;
       const R = b ? POSTB : POST, on = b ? postBOn : postOn;
       if (rotOn && on) z = v.postRotC ? mv(R, [z[0] - c[0], z[1] - c[1], z[2] - c[2]]).map((x, k) => x + c[k]) : mv(R, z);
+      // Level i: after this iteration's folds, before its scale.
+      if (lvM && i >= lvFrom && i < lvUntil) {
+        const dl = lvShape([z[0] - lvO[0], z[1] - lvO[1], z[2] - lvO[2]]) / Math.max(dr, 1e-30);
+        if (lvM === 1) { if (dl < lv) { lv = dl; lvI = i; } }
+        else if (lvM === 2) { if (dl < lv) lvI = i; lv = smin(lv, dl, lvK / Math.max(dr, 1e-30)); }
+        else if (lvM === 3) { if (-dl > lv) { lv = -dl; lvI = i; } }
+        else if (dl > lv) { lv = dl; lvI = i; }
+      }
       z = [s * (z[0] - c[0]) + c[0], s * (z[1] - c[1]) + c[1], s * (z[2] - c[2]) + c[2]];
       dr *= Math.abs(s);
       const zz = z[0] * z[0] + z[1] * z[1] + z[2] * z[2];
@@ -57,10 +71,16 @@ export function localDE(v, scaleOverride) {
       if (zz > bail2) break;
     }
     const orbit = trap;
+    let d = shape(z) / Math.max(dr, 1e-30);
+    if (polySeed) acc.fold += shape.part;
+    if (lvM === 1) { if (lv < d) { d = lv; lvWin = lvI + 1; } }
+    else if (lvM === 2) { if (lv < d) lvWin = lvI + 1; d = smin(d, lv, lvK / Math.max(dr, 1e-30)); }
+    else if (lvM >= 3) { if (lv > d) { d = lv; lvWin = lvI + 1; } }
     if (src === 1) trap = acc.fold * fcw * 2.5;
     else if (src === 2) trap += acc.fold * fcw * 2.5;
     else if (src === 3) { trap = 0; for (const k in acc.traps) if (acc.traps[k] < 1e9) trap += acc.w[k] * acc.traps[k]; }
-    return { d: shape(z) / Math.max(dr, 1e-30), trap, orbit, folds: acc.fold, z, dr };
+    if (lvM) trap += lvWin * lvCol;
+    return { d, trap, orbit, folds: acc.fold, z, dr };
   };
   return map;
 }

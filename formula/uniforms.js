@@ -4,7 +4,7 @@
 
 import { effectiveIterations } from '../core/engine/params.js';
 import { fractalRotation, mat3ToColumnMajor } from '../core/engine/vec.js';
-import { stackOf, slotData, hybridPattern, stackCenter } from './kifs.js';
+import { stackOf, slotData, hybridPattern, stackCenter, polyUniforms } from './kifs.js';
 
 export function uniforms(v, scaleOverride) {
   const A = stackOf(v, 'a');
@@ -12,7 +12,7 @@ export function uniforms(v, scaleOverride) {
   const B = hasB ? stackOf(v, 'b') : null;
   const out = {
     // Program selection (glsl.js spec()).
-    __f: { A, B, shape: v.shape | 0 },
+    __f: { A, B, shape: v.shape | 0, lv: (v.lvMode | 0) > 0 ? { m: v.lvMode | 0, s: v.lvShape | 0 } : null },
     u_iterations: effectiveIterations(v),
     u_scale: scaleOverride ?? v.scale,
     u_center: stackCenter(v),
@@ -31,6 +31,15 @@ export function uniforms(v, scaleOverride) {
     u_shapeBox: [v.shapeBX ?? 1, v.shapeBY ?? 1, v.shapeBZ ?? 1],
     u_shapeT: v.shapeT ?? 0.1,
     u_shapeAx: v.shapeAx ?? 2,
+    ...polyUniforms(v),
+    u_lvR: v.lvR ?? 0.5,
+    u_lvBox: [v.lvBX ?? 1, v.lvBY ?? 1, v.lvBZ ?? 1],
+    u_lvT: v.lvT ?? 0.05,
+    u_lvAx: v.lvAx ?? 2,
+    u_lvOff: [v.lvOX || 0, v.lvOY || 0, v.lvOZ || 0],
+    u_lvK: v.lvK ?? 0.1,
+    u_lvRange: [v.lvFrom ?? 0, v.lvUntil ?? 250],
+    u_lvCol: v.lvCol ?? 0,
   };
   if (hasB) Object.assign(out, {
     u_scaleB: v.scaleB ?? 2,

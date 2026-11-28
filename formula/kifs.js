@@ -21,7 +21,14 @@
 //  • Sphere Inversion and the Kleinian step stretch space by R²/|z|², which
 //    they track exactly in dr (conformal), as Mandelbulber does;
 //  • the chiral folds and Cyclic N-Fold rotate instead of reflect. Each region
-//    gets a rotation, so the map jumps across the seams between regions.
+//    gets a rotation, so the map jumps across the seams between regions;
+//  • N-Flake moves each region toward its nearest vertex, which also jumps at
+//    the region boundaries.
+//
+// Smooth folds (Benesi): Abs, Plane Swaps, Sierpinski, Octahedral, Custom
+// Plane and the mirror z-trick can round their creases. |t| becomes
+// √(t² + k²) along each fold's normal, which still has slope ≤ 1, so the DE
+// stays exact.
 //
 // Every step can be limited to an iteration range [From, Until).
 
@@ -29,16 +36,20 @@ export const STEP_NAMES = [
   'Off', 'Abs', 'Plane Swaps', 'Sierpinski (tetrahedral)', 'Octahedral Planes', 'Icosahedral Planes',
   'Custom Plane', 'Menger Z-Trick', 'Rotate', 'Edge Fold', 'Box Fold', 'Dihedral N-Fold', 'Sphere Inversion',
   'Tetrahedral Planes', 'Chiral Tetrahedral (T)', 'Chiral Octahedral (O)', 'Chiral Icosahedral (I)', 'Cyclic N-Fold', 'Kleinian (Knighty)',
+  'Periodic Mirror Fold', 'N-Flake (nearest vertex)',
 ];
 export const T = { OFF: 0, ABS: 1, SWAP: 2, SIERP: 3, OCTA: 4, ICOSA: 5, PLANE: 6, ZTRICK: 7, ROT: 8, EDGE: 9, BOX: 10, DIHEDRAL: 11, INV: 12,
-  TETRA: 13, CHIR_T: 14, CHIR_O: 15, CHIR_I: 16, CYCLIC: 17, KLEIN: 18 };
+  TETRA: 13, CHIR_T: 14, CHIR_O: 15, CHIR_I: 16, CYCLIC: 17, KLEIN: 18, PERIOD: 19, NFLAKE: 20 };
 // Steps that make the DE an estimate (see above).
-export const ESTIMATE_TYPES = [12, 14, 15, 16, 17, 18];
+export const ESTIMATE_TYPES = [12, 14, 15, 16, 17, 18, 20];
+// Steps with a Smooth option (compiled in; Softness is a uniform).
+export const SMOOTH_TYPES = [1, 2, 3, 4, 6, 7];
 export const ABS_MASKS = ['XYZ', 'XY', 'XZ', 'YZ', 'X', 'Y', 'Z'];
 export const SWAP_MODES = ['Sort x ≥ y ≥ z', 'x ↔ y (if x < y)', 'x ↔ z (if x < z)', 'y ↔ z (if y < z)'];
 export const ROT_PIVOTS = ['Origin', 'Centre'];
 export const AXES = ['X', 'Y', 'Z'];
 export const ZTRICK_MODES = ['Mirror (continuous)', 'Shift (Mandelbulber)'];
+export const FLAKE_POLYS = ['Tetrahedron (4)', 'Octahedron (6)', 'Cube (8)', 'Icosahedron (12)', 'Dodecahedron (20)'];
 
 export const STEP_DESC = [
   '',
@@ -60,11 +71,13 @@ export const STEP_DESC = [
   'Rotate (never mirror) into the domain of the 60 rotations of the icosahedron: handed, snub-dodecahedral symmetry. The fold has seams, so the DE becomes an estimate.',
   'Rotate (never mirror) into one of N sectors around an axis: N-fold cyclic symmetry, a pinwheel. The fold has seams, so the DE becomes an estimate.',
   "Knighty's pseudo-Kleinian step: box fold to ±L, invert in the sphere of radius R only inside it, then add C. Use with Scale 1 and the Kleinian shape. Not a fold: the DE becomes an estimate.",
+  'A box fold that repeats: mirrors at every odd multiple of L on each axis (L = 0 leaves that axis alone), so space folds into the box ±L and the fractal tiles forever. On iteration 0 only (Until 1) it gives an infinite lattice of the fractal; on every iteration, a periodic sponge. Exact.',
+  "Syntopia's n-flake IFS: each point moves toward its nearest vertex of the chosen polyhedron (at Vertex Distance), so the scale step shrinks a copy onto every vertex. Set the scale centre to 0. The nearest vertex jumps between regions, so the DE becomes an estimate.",
 ];
 
 // Slot fields. Defaults are what a freshly enabled step starts with.
 export const SLOT_FIELDS = ['t', 'abs', 'swap', 'zm', 'pv', 'ax', 'nx', 'ny', 'nz', 'd', 'k', 'ra', 'rb', 'rg', 'lx', 'ly', 'lz', 'n',
-  'icx', 'icy', 'icz', 'ir', 'ia', 'il', 'iax', 'iay', 'iaz', 'is', 'kr', 'kcx', 'kcy', 'kcz', 'if', 'iu', 'cw'];
+  'icx', 'icy', 'icz', 'ir', 'ia', 'il', 'iax', 'iay', 'iaz', 'is', 'kr', 'kcx', 'kcy', 'kcz', 'sm', 'sk', 'fp', 'fr', 'if', 'iu', 'cw'];
 export const STACKS = { a: { n: 12, name: 'A' }, b: { n: 8, name: 'B' } };
 export const sid = (s, k, f) => `${s}${k}${f}`; // e.g. a3t, b1nx (k is 1-based)
 
@@ -79,22 +92,25 @@ const PHI = (1 + Math.sqrt(5)) / 2;
 export const ICO_N = [-PHI / 2, -0.5, 1 / (2 * PHI)];
 
 // Which option field a type compiles in.
-const OPT_FIELD = { 1: 'abs', 2: 'swap', 7: 'zm', 8: 'pv', 11: 'ax', 17: 'ax' };
+const OPT_FIELD = { 1: 'abs', 2: 'swap', 7: 'zm', 8: 'pv', 11: 'ax', 17: 'ax', 20: 'fp' };
+// Smooth applies to the mirror z-trick only (the shift form is a jump).
+const smoothOn = (t, o, v) => SMOOTH_TYPES.includes(t) && !(t === T.ZTRICK && o === 1) && !!v;
 
 // Active slots of stack s ('a' | 'b'), stopping at the first Off (later slots
-// are hidden in the panel, so they never count). [{ k, t, o }]
+// are hidden in the panel, so they never count). [{ k, t, o, sm }]
 export function stackOf(v, s) {
   const out = [];
   for (let k = 1; k <= STACKS[s].n; k++) {
     const t = v[sid(s, k, 't')] | 0;
     if (!t) break;
     const of = OPT_FIELD[t];
-    out.push({ k, t, o: of ? (v[sid(s, k, of)] | 0) : 0 });
+    const o = of ? (v[sid(s, k, of)] | 0) : 0;
+    out.push({ k, t, o, sm: smoothOn(t, o, v[sid(s, k, 'sm')]) ? 1 : 0 });
   }
   return out;
 }
 
-export const stackKey = slots => slots.map(x => x.t.toString(36) + (x.o ? x.o : '')).join('.');
+export const stackKey = slots => slots.map(x => x.t.toString(36) + (x.o ? x.o : '') + (x.sm ? 's' : '')).join('.');
 
 // Rotation for the Rotate step: Mandelbulber's SetRotation3 order,
 // Rz(α)·Ry(β)·Rx(γ), angles in degrees (row-major).
@@ -138,12 +154,29 @@ export function slotData(v, s, slot) {
       p = [g('lx') ?? 1, g('ly') ?? 1, g('lz') ?? 1, Math.max(1e-4, g('kr') ?? 1)];
       r = [g('kcx') ?? 0, g('kcy') ?? 0, g('kcz') ?? 0, 0];
       break;
+    case T.PERIOD: p = [Math.max(0, g('lx') ?? 1), Math.max(0, g('ly') ?? 1), Math.max(0, g('lz') ?? 1), 0]; break;
+    case T.NFLAKE: p = [g('fr') ?? 1, 0, 0, 0]; break;
     default: break;
   }
+  // Smooth folds: Softness k in q.y (Sphere Inversion uses q.y for its limit).
+  if (SMOOTH_TYPES.includes(slot.t)) q[1] = Math.max(0, g('sk') ?? 0.05);
   return { p, q, m, r, it };
 }
 
-const needsP = t => t === T.PLANE || t === T.EDGE || t === T.BOX || t === T.DIHEDRAL || t === T.INV || t === T.CYCLIC || t === T.KLEIN;
+// N-flake vertex sets (unit vectors), in a fixed order: the vertex index is
+// the step's colour count.
+const nrm3 = v => { const l = Math.hypot(...v); return v.map(x => x / l); };
+const signs = n => Array.from({ length: 1 << n }, (_, i) => Array.from({ length: n }, (_, b) => ((i >> b) & 1 ? -1 : 1)));
+const IPHI = 1 / PHI;
+export const FLAKE_VERTS = [
+  [[1, 1, 1], [-1, -1, 1], [1, -1, -1], [-1, 1, -1]].map(nrm3),
+  [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]],
+  signs(3).map(nrm3),
+  signs(2).flatMap(([a, b]) => [[0, a, b * PHI], [a, b * PHI, 0], [b * PHI, 0, a]]).map(nrm3),
+  [...signs(3), ...signs(2).flatMap(([a, b]) => [[0, a * IPHI, b * PHI], [a * IPHI, b * PHI, 0], [b * PHI, 0, a * IPHI]])].map(nrm3),
+];
+
+const needsP = t => t === T.PLANE || t === T.EDGE || t === T.BOX || t === T.DIHEDRAL || t === T.INV || t === T.CYCLIC || t === T.KLEIN || t === T.PERIOD || t === T.NFLAKE;
 const needsR = t => t === T.INV || t === T.KLEIN;
 
 // ── GLSL emission ────────────────────────────────────────────────────────────
@@ -151,27 +184,39 @@ const needsR = t => t === T.INV || t === T.KLEIN;
 // and may read P (vec4), Q (vec4), M (mat3), R (vec4), I (vec2), s (this
 // iteration's scale), c (its centre) and it (the iteration index); only Sphere
 // Inversion writes `dr`. Names are substituted per slot.
-function glslBody(t, o) {
+// Smooth forms (sm = 1, Softness k = Q.y), after Benesi's MengerSmooth:
+//   abs:   t → √(t² + k²)
+//   swap:  (a, b) → sorted with a − b = √((a − b)² + k²), a + b kept
+//   mirror across a plane: the normal coordinate t → √(t² + k²)
+// each with slope ≤ 1 along the fold normal and 1 across it.
+const SWAP_PAIRS = [[0, 1, 'x', 'y'], [0, 2, 'x', 'z'], [1, 2, 'y', 'z']];
+function glslBody(t, o, sm = 0) {
   switch (t) {
-    case T.ABS: return ABS_MASKS[o].toLowerCase().split('').map(a => `if (z.${a} < 0.0) { z.${a} = -z.${a}; h += 1.0; }`).join('\n    ');
-    case T.SWAP: return [
-      o === 0 || o === 1 ? 'if (z.x < z.y) { z.xy = z.yx; h += 1.0; }' : '',
-      o === 0 || o === 2 ? 'if (z.x < z.z) { z.xz = z.zx; h += 1.0; }' : '',
-      o === 0 || o === 3 ? 'if (z.y < z.z) { z.yz = z.zy; h += 1.0; }' : '',
-    ].filter(Boolean).join('\n    ');
-    case T.SIERP: return `if (z.x + z.y < 0.0) { z.xy = -z.yx; h += 1.0; }
+    case T.ABS: return ABS_MASKS[o].toLowerCase().split('').map(a => sm
+      ? `if (z.${a} < 0.0) h += 1.0; z.${a} = sqrt(z.${a} * z.${a} + Q.y * Q.y);`
+      : `if (z.${a} < 0.0) { z.${a} = -z.${a}; h += 1.0; }`).join('\n    ');
+    case T.SWAP: return SWAP_PAIRS.filter((_, i) => o === 0 || o === i + 1).map(([, , a, b]) => sm
+      ? `{ float st = z.${a} - z.${b}; if (st < 0.0) h += 1.0; float sm = 0.5 * (st - sqrt(st * st + Q.y * Q.y)); z.${a} -= sm; z.${b} += sm; }`
+      : `if (z.${a} < z.${b}) { z.${a}${b} = z.${b}${a}; h += 1.0; }`).join('\n    ');
+    case T.SIERP: return sm
+      ? SWAP_PAIRS.map(([, , a, b]) => `{ float st = z.${a} + z.${b}; if (st < 0.0) h += 1.0; float sm = 0.5 * (sqrt(st * st + Q.y * Q.y) - st); z.${a} += sm; z.${b} += sm; }`).join('\n    ')
+      : `if (z.x + z.y < 0.0) { z.xy = -z.yx; h += 1.0; }
     if (z.x + z.z < 0.0) { z.xz = -z.zx; h += 1.0; }
     if (z.y + z.z < 0.0) { z.yz = -z.zy; h += 1.0; }`;
-    case T.OCTA: return glslBody(T.ABS, 0) + '\n    ' + glslBody(T.SWAP, 0);
+    case T.OCTA: return glslBody(T.ABS, 0, sm) + '\n    ' + glslBody(T.SWAP, 0, sm);
     case T.ICOSA: return `for (int ip = 0; ip < ${ICO_PASSES}; ip++) {
       if (z.x < 0.0) { z.x = -z.x; h += 1.0; }
       if (z.y < 0.0) { z.y = -z.y; h += 1.0; }
       float ti = dot(z, ICO_N); if (ti < 0.0) { z -= 2.0 * ti * ICO_N; h += 1.0; }
     }`;
-    case T.PLANE: return 'float tp = dot(z, P.xyz) - P.w; if (tp < 0.0) { z -= (2.0 * Q.x * tp) * P.xyz; h += 1.0; }';
+    case T.PLANE: return sm
+      ? 'float tp = dot(z, P.xyz) - P.w; if (tp < 0.0) h += 1.0; z += (Q.x * (sqrt(tp * tp + Q.y * Q.y) - tp)) * P.xyz;'
+      : 'float tp = dot(z, P.xyz) - P.w; if (tp < 0.0) { z -= (2.0 * Q.x * tp) * P.xyz; h += 1.0; }';
     case T.ZTRICK: return o === 1
       ? 'if (s * z.z <= 0.5 * c.z * (s - 1.0)) { z.z += c.z * (s - 1.0) / sNZ(s); h += 1.0; }'
-      : 'float hz = 0.5 * c.z * (s - 1.0) / sNZ(s); float dz = z.z - hz; if (s * dz < 0.0) { z.z = hz - dz; h += 1.0; }';
+      : sm
+        ? 'float hz = 0.5 * c.z * (s - 1.0) / sNZ(s); float dz = z.z - hz; if (s * dz < 0.0) h += 1.0; z.z = hz + (s < 0.0 ? -1.0 : 1.0) * sqrt(dz * dz + Q.y * Q.y);'
+        : 'float hz = 0.5 * c.z * (s - 1.0) / sNZ(s); float dz = z.z - hz; if (s * dz < 0.0) { z.z = hz - dz; h += 1.0; }';
     case T.ROT: return o === 1 ? 'z = M * (z - c) + c;' : 'z = M * z;';
     case T.EDGE: return ['x', 'y', 'z'].map(a => `if (P.${a} > 0.0 && z.${a} > P.${a}) { z.${a} = 2.0 * P.${a} - z.${a}; h += 1.0; }`).join('\n    ');
     case T.BOX: return ['x', 'y', 'z'].map(a => `if (z.${a} > P.${a}) { z.${a} = 2.0 * P.${a} - z.${a}; h += 1.0; } else if (z.${a} < -P.${a}) { z.${a} = -2.0 * P.${a} - z.${a}; h += 1.0; }`).join('\n    ');
@@ -213,6 +258,19 @@ function glslBody(t, o) {
     if (kk > 1.0) h += 1.0;
     z *= kk; dr *= kk;
     z += R.xyz;`;
+    // Mirrors at ±L, ±3L, ±5L …: a triangle wave with slope ±1, the identity
+    // on [−L, L].
+    case T.PERIOD: return ['x', 'y', 'z'].map(a => `if (P.${a} > 0.0) { if (abs(z.${a}) > P.${a}) h += 1.0; z.${a} = abs(mod(z.${a} - P.${a}, 4.0 * P.${a}) - 2.0 * P.${a}) - P.${a}; }`).join('\n    ');
+    // Nearest vertex V = R·v (largest dot product, all |v| = 1), then shift so
+    // the scale step gives s·(z − V) + V.
+    case T.NFLAKE: {
+      const V = FLAKE_VERTS[o] || FLAKE_VERTS[0];
+      const lit = v => `vec3(${v.map(x => x.toFixed(10)).join(', ')})`;
+      return [`vec3 fv = ${lit(V[0])}; float fd = dot(z, fv); float fi = 0.0;`,
+        ...V.slice(1).map((v, i) => `{ float fe = dot(z, ${lit(v)}); if (fe > fd) { fd = fe; fv = ${lit(v)}; fi = ${(i + 1).toFixed(1)}; } }`),
+        'h += fi;',
+        'z -= (1.0 - 1.0 / sNZ(s)) * (P.x * fv - c);'].join('\n    ');
+    }
     default: return '';
   }
 }
@@ -228,10 +286,10 @@ export function glslStack(s, slots) {
     if (sl.t === T.ROT) decl.push(`uniform mat3 ${n}m;`);
     if (needsR(sl.t)) decl.push(`uniform vec4 ${n}r;`);
     traps.push(`g_t${s}${sl.k}`);
-    const code = glslBody(sl.t, sl.o)
+    const code = glslBody(sl.t, sl.o, sl.sm)
       .replace(/\bP\./g, `${n}p.`).replace(/\bQ\./g, `${n}q.`).replace(/\bM \*/g, `${n}m *`)
       .replace(/\bR\./g, `${n}r.`).replace(/\bI\./g, `${n}i.`);
-    body.push(`  if (fit >= ${n}i.x && fit < ${n}i.y) { // ${s}${sl.k}: ${STEP_NAMES[sl.t]}
+    body.push(`  if (fit >= ${n}i.x && fit < ${n}i.y) { // ${s}${sl.k}: ${STEP_NAMES[sl.t]}${sl.sm ? ' (smooth)' : ''}
     float h = 0.0;
     ${code}
     stepHit(h, ${n}q.w);
@@ -250,32 +308,58 @@ export function glslStack(s, slots) {
 const sNZ = s => (Math.abs(s) < 1e-6 ? (s < 0 ? -1e-6 : 1e-6) : s);
 const fmodG = (x, y) => x - y * Math.floor(x / y); // GLSL mod()
 
-function cpuStep(t, o, z, D, s, c, it = 0) {
+function cpuStep(t, o, z, D, s, c, it = 0, sm = 0) {
   let h = 0, k = 1; // k: derivative factor (Sphere Inversion only)
   const [x0, y0, w0] = z;
   let x = x0, y = y0, w = w0;
+  const kk2 = sm ? D.q[1] * D.q[1] : 0;
   switch (t) {
     case T.ABS: {
       const m = ABS_MASKS[o];
+      if (sm) {
+        const v = [x, y, w];
+        for (let i = 0; i < 3; i++) if (m.includes('XYZ'[i])) { if (v[i] < 0) h++; v[i] = Math.sqrt(v[i] * v[i] + kk2); }
+        [x, y, w] = v;
+        break;
+      }
       if (m.includes('X') && x < 0) { x = -x; h++; }
       if (m.includes('Y') && y < 0) { y = -y; h++; }
       if (m.includes('Z') && w < 0) { w = -w; h++; }
       break;
     }
     case T.SWAP: {
+      if (sm) {
+        const v = [x, y, w];
+        SWAP_PAIRS.forEach(([i, j], n) => {
+          if (!(o === 0 || o === n + 1)) return;
+          const st = v[i] - v[j]; if (st < 0) h++;
+          const q = 0.5 * (st - Math.sqrt(st * st + kk2)); v[i] -= q; v[j] += q;
+        });
+        [x, y, w] = v;
+        break;
+      }
       if ((o === 0 || o === 1) && x < y) { [x, y] = [y, x]; h++; }
       if ((o === 0 || o === 2) && x < w) { [x, w] = [w, x]; h++; }
       if ((o === 0 || o === 3) && y < w) { [y, w] = [w, y]; h++; }
       break;
     }
     case T.SIERP: {
+      if (sm) {
+        const v = [x, y, w];
+        for (const [i, j] of SWAP_PAIRS) {
+          const st = v[i] + v[j]; if (st < 0) h++;
+          const q = 0.5 * (Math.sqrt(st * st + kk2) - st); v[i] += q; v[j] += q;
+        }
+        [x, y, w] = v;
+        break;
+      }
       if (x + y < 0) { [x, y] = [-y, -x]; h++; }
       if (x + w < 0) { [x, w] = [-w, -x]; h++; }
       if (y + w < 0) { [y, w] = [-w, -y]; h++; }
       break;
     }
     case T.OCTA: {
-      const a = cpuStep(T.ABS, 0, z, D, s, c), b = cpuStep(T.SWAP, 0, a.z, D, s, c);
+      const a = cpuStep(T.ABS, 0, z, D, s, c, it, sm), b = cpuStep(T.SWAP, 0, a.z, D, s, c, it, sm);
       return { z: b.z, h: a.h + b.h, k: 1 };
     }
     case T.ICOSA: {
@@ -290,12 +374,19 @@ function cpuStep(t, o, z, D, s, c, it = 0) {
     }
     case T.PLANE: {
       const P = D.p, tp = x * P[0] + y * P[1] + w * P[2] - P[3];
-      if (tp < 0) { const f = 2 * D.q[0] * tp; x -= f * P[0]; y -= f * P[1]; w -= f * P[2]; h++; }
+      if (sm) {
+        if (tp < 0) h++;
+        const f = D.q[0] * (Math.sqrt(tp * tp + kk2) - tp); x += f * P[0]; y += f * P[1]; w += f * P[2];
+      } else if (tp < 0) { const f = 2 * D.q[0] * tp; x -= f * P[0]; y -= f * P[1]; w -= f * P[2]; h++; }
       break;
     }
     case T.ZTRICK: {
       if (o === 1) { if (s * w <= 0.5 * c[2] * (s - 1)) { w += c[2] * (s - 1) / sNZ(s); h++; } }
-      else { const hz = 0.5 * c[2] * (s - 1) / sNZ(s), dz = w - hz; if (s * dz < 0) { w = hz - dz; h++; } }
+      else {
+        const hz = 0.5 * c[2] * (s - 1) / sNZ(s), dz = w - hz;
+        if (sm) { if (s * dz < 0) h++; w = hz + (s < 0 ? -1 : 1) * Math.sqrt(dz * dz + kk2); }
+        else if (s * dz < 0) { w = hz - dz; h++; }
+      }
       break;
     }
     case T.ROT: {
@@ -385,6 +476,20 @@ function cpuStep(t, o, z, D, s, c, it = 0) {
       x += D.r[0]; y += D.r[1]; w += D.r[2];
       break;
     }
+    case T.PERIOD: {
+      const tri = (a, L) => { if (!(L > 0)) return a; if (Math.abs(a) > L) h++; return Math.abs(fmodG(a - L, 4 * L) - 2 * L) - L; };
+      x = tri(x, D.p[0]); y = tri(y, D.p[1]); w = tri(w, D.p[2]);
+      break;
+    }
+    case T.NFLAKE: {
+      const V = FLAKE_VERTS[o] || FLAKE_VERTS[0];
+      let bi = 0, bd = x * V[0][0] + y * V[0][1] + w * V[0][2];
+      for (let i = 1; i < V.length; i++) { const e = x * V[i][0] + y * V[i][1] + w * V[i][2]; if (e > bd) { bd = e; bi = i; } }
+      h += bi;
+      const f = 1 - 1 / sNZ(s), R = D.p[0];
+      x -= f * (R * V[bi][0] - c[0]); y -= f * (R * V[bi][1] - c[1]); w -= f * (R * V[bi][2] - c[2]);
+      break;
+    }
     default: break;
   }
   return { z: [x, y, w], h, k };
@@ -397,7 +502,7 @@ export function cpuStack(v, s, slots) {
   return (z, sc, c, acc, it = 0) => {
     for (let i = 0; i < slots.length; i++) {
       if (!(it >= data[i].it[0] && it < data[i].it[1])) continue;
-      const r = cpuStep(slots[i].t, slots[i].o, z, data[i], sc, c, it);
+      const r = cpuStep(slots[i].t, slots[i].o, z, data[i], sc, c, it, slots[i].sm | 0);
       z = r.z;
       if (r.k !== 1) acc.dr = (acc.dr ?? 1) * r.k;
       acc.fold += acc.colOn * data[i].q[3] * r.h;
@@ -414,8 +519,13 @@ export function cpuStack(v, s, slots) {
 // Shapes 0–8 keep the DE a bound: exact distances (sphere, box, shell, box
 // frame, axis cross, torus, capsule) or plane-distance lower bounds
 // (octahedron, tetrahedron). Kleinian is Knighty's heuristic: an estimate.
-export const SHAPES = ['Sphere', 'Box', 'Octahedron', 'Tetrahedron', 'Shell', 'Box Frame', 'Axis Cross', 'Torus', 'Capsule', 'Kleinian (Knighty)'];
+// Shape 10, Square Cross, is three infinite square tubes (exact distance), the
+// carving tool of the Menger sponge. Shapes 11–13 are Knighty's fold-and-cut
+// uniform polyhedra (POLY below).
+export const SHAPES = ['Sphere', 'Box', 'Octahedron', 'Tetrahedron', 'Shell', 'Box Frame', 'Axis Cross', 'Torus', 'Capsule', 'Kleinian (Knighty)',
+  'Square Cross', 'Polyhedron · Tetrahedral (Td)', 'Polyhedron · Octahedral (Oh)', 'Polyhedron · Icosahedral (Ih)'];
 export const ESTIMATE_SHAPES = [9];
+export const POLY_SHAPES = [11, 12, 13];
 // Torus / capsule axis: swizzle so the chosen axis is a.z.
 const AXIS_SWZ = 'vec3 a = u_shapeAx == 0 ? z.yzx : u_shapeAx == 1 ? z.zxy : z;';
 export const SHAPE_GLSL = [
@@ -438,6 +548,12 @@ export const SHAPE_GLSL = [
   `${AXIS_SWZ} return length(vec2(length(a.xy) - u_shapeR, a.z)) - u_shapeT;`,
   `${AXIS_SWZ} a.z -= clamp(a.z, -u_shapeR, u_shapeR); return length(a) - u_shapeT;`,
   'float rxy = length(z.xy); return max(rxy - u_shapeT, abs(rxy * z.z) / max(length(z), 1e-12));',
+  `vec3 sa = abs(z) - u_shapeR;
+  return min(min(length(max(sa.xy, 0.0)) + min(max(sa.x, sa.y), 0.0), length(max(sa.yz, 0.0)) + min(max(sa.y, sa.z), 0.0)),
+             length(max(sa.zx, 0.0)) + min(max(sa.z, sa.x), 0.0));`,
+  'return polyDE0(z, u_shapeR);',
+  'return polyDE1(z, u_shapeR);',
+  'return polyDE2(z, u_shapeR);',
 ];
 export function shapeFn(v) {
   const r = v.shapeR ?? 1, b = [v.shapeBX ?? 1, v.shapeBY ?? 1, v.shapeBZ ?? 1], t = v.shapeT ?? 0.1;
@@ -464,6 +580,12 @@ export function shapeFn(v) {
     case 7: return z => { const a = swz(z); return Math.hypot(Math.hypot(a[0], a[1]) - r, a[2]) - t; };
     case 8: return z => { const a = swz(z); return len(a[0], a[1], a[2] - Math.max(-r, Math.min(r, a[2]))) - t; };
     case 9: return z => { const rxy = Math.hypot(z[0], z[1]); return Math.max(rxy - t, Math.abs(rxy * z[2]) / Math.max(Math.hypot(z[0], z[1], z[2]), 1e-12)); };
+    case 10: return z => {
+      const a = z.map(x => Math.abs(x) - r);
+      const b2 = (p, q) => Math.hypot(Math.max(p, 0), Math.max(q, 0)) + Math.min(Math.max(p, q), 0);
+      return Math.min(b2(a[0], a[1]), b2(a[1], a[2]), b2(a[2], a[0]));
+    };
+    case 11: case 12: case 13: return polyFn(v, (v.shape | 0) - 11, r);
     default: return z => Math.hypot(z[0], z[1], z[2]) - r;
   }
 }
@@ -480,6 +602,104 @@ export const WYTHOFF = [
   { name: 'Icosahedral (Ih)', corners: [nrm([0, 1, PHI]), [0, 0, 1], nrm([PHI, 0, 2 * PHI + 1])], labels: ['5-fold (0,1,φ)', '2-fold (0,0,1)', '3-fold (φ,0,2φ+1)'] },
 ];
 export const CENTER_MODES = ['Manual', 'Wythoff (cell corners)'];
+
+// ── Fold-and-cut polyhedra (after Knighty) ──────────────────────────────────
+// Fold into one mirror cell of Td / Oh / Ih (the same cells as the Wythoff
+// centre). The vertex is the Wythoff point P = R·normalize(Σ wᵢ cornerᵢ), so
+// the three weights choose which uniform polyhedron appears. Parts:
+//   faces    — planes through P with the cell's corner directions as normals;
+//              the max of the three is a lower bound (each face type can be off)
+//   edges    — segments from P perpendicular to each mirror: exact
+//   vertices — a ball at P: exact
+// For two points in the same mirror cell the nearest copy of one is the other
+// itself, so these in-cell distances are distances to the whole polyhedron.
+export const POLY = [
+  { fold: T.TETRA, mirrors: [nrm([1, -1, 0]), nrm([0, 1, -1]), nrm([0, 1, 1])] },
+  { fold: T.OCTA, mirrors: [nrm([1, -1, 0]), nrm([0, 1, -1]), [0, 0, 1]] },
+  { fold: T.ICOSA, mirrors: [[1, 0, 0], [0, 1, 0], ICO_N] },
+];
+export const POLY_PARTS = ['Face A', 'Face B', 'Face C', 'Edges', 'Vertices'];
+// Unit vertex direction of group g's polyhedron (own weights, or the Wythoff
+// centre's when Link is on).
+export function polyDir(v, g) {
+  const link = !!v.polyLink;
+  const w = link ? [v.wyA ?? 1, v.wyB ?? 0, v.wyC ?? 0] : [v.polyA ?? 1, v.polyB ?? 1, v.polyC ?? 0];
+  const C = WYTHOFF[g].corners;
+  const d = [0, 1, 2].map(i => C.reduce((a, cc, k) => a + Math.max(0, w[k]) * cc[i], 0));
+  const l = Math.hypot(...d);
+  return l > 1e-12 ? d.map(x => x / l) : C[0];
+}
+const polyFaces = v => [v.polyF1 ?? true, v.polyF2 ?? true, v.polyF3 ?? true].map(b => (b ? 1 : 0));
+const polyEV = v => [v.polyE ? 1 : 0, v.polyV ? 1 : 0, Math.max(0, v.polyER ?? 0.03), Math.max(0, v.polyVR ?? 0.08)];
+// CPU distance; the returned function's .part is the nearest part of the last call.
+export function polyFn(v, g, R) {
+  const dir = polyDir(v, g), F = polyFaces(v), EV = polyEV(v), C = WYTHOFF[g].corners, N = POLY[g].mirrors;
+  const D = { q: [1, 0, 0, 1] };
+  const f = z => {
+    const fz = cpuStep(POLY[g].fold, 0, z, D, 2, [0, 0, 0]).z;
+    const q = [fz[0] - R * dir[0], fz[1] - R * dir[1], fz[2] - R * dir[2]];
+    const dt = n => q[0] * n[0] + q[1] * n[1] + q[2] * n[2];
+    let d = 1e10, part = 0, fc = -1e10, fp = 0;
+    for (let i = 0; i < 3; i++) if (F[i]) { const t = dt(C[i]); if (t > fc) { fc = t; fp = i; } }
+    if (fc > -1e9) { d = fc; part = fp; }
+    if (EV[0]) {
+      const e = Math.min(...N.map(n => { const m = Math.min(0, dt(n)); return Math.hypot(q[0] - m * n[0], q[1] - m * n[1], q[2] - m * n[2]); })) - EV[2];
+      if (e < d) { d = e; part = 3; }
+    }
+    if (EV[1]) { const e = Math.hypot(...q) - EV[3]; if (e < d) { d = e; part = 4; } }
+    f.part = part;
+    return d;
+  };
+  f.part = 0;
+  return f;
+}
+const vec3Lit = v => `vec3(${v.map(x => x.toFixed(10)).join(', ')})`;
+export function polyGLSL(g) {
+  const C = WYTHOFF[g].corners.map(vec3Lit), N = POLY[g].mirrors.map(vec3Lit);
+  const fold = glslBody(POLY[g].fold, 0);
+  const edge = n => `length(q - min(0.0, dot(q, ${n})) * ${n})`;
+  return `
+// Fold-and-cut polyhedron, ${WYTHOFF[g].name} cell (after Knighty).
+float polyDE${g}(vec3 z, float R) {
+  float h = 0.0;
+  ${fold}
+  vec3 q = z - R * u_polyDir${g};
+  float d = 1e10, part = 0.0, fc = -1e10, fp = 0.0;
+  if (u_polyFace.x > 0.5) { fc = dot(q, ${C[0]}); }
+  if (u_polyFace.y > 0.5) { float t = dot(q, ${C[1]}); if (t > fc) { fc = t; fp = 1.0; } }
+  if (u_polyFace.z > 0.5) { float t = dot(q, ${C[2]}); if (t > fc) { fc = t; fp = 2.0; } }
+  if (fc > -1e9) { d = fc; part = fp; }
+  if (u_polyEV.x > 0.5) {
+    float e = min(min(${edge(N[0])}, ${edge(N[1])}), ${edge(N[2])}) - u_polyEV.z;
+    if (e < d) { d = e; part = 3.0; }
+  }
+  if (u_polyEV.y > 0.5) { float e = length(q) - u_polyEV.w; if (e < d) { d = e; part = 4.0; } }
+  g_polyPart = part;
+  return d;
+}`;
+}
+export const polyUniforms = v => ({
+  u_polyDir0: polyDir(v, 0), u_polyDir1: polyDir(v, 1), u_polyDir2: polyDir(v, 2),
+  u_polyFace: polyFaces(v), u_polyEV: polyEV(v),
+});
+
+// ── Shapes at every level ───────────────────────────────────────────────────
+// A second shape, evaluated in each iteration i in [From, Until) after its
+// folds and before its scale (level i: the folded frame, its distance divided
+// by that level's dr), as in Knighty's iterated polyhedra and NewMenger, and
+// combined with the final shape. Union and intersection of 1-Lipschitz lower
+// bounds are 1-Lipschitz lower bounds; so is carving (max(d, −dᵢ)), since
+// |dᵢ| never exceeds the distance to that shape's boundary; and the polynomial
+// smooth union (its gradient is a convex blend of the two). So the DE stays exact.
+export const LEVEL_MODES = ['Off', 'Union (add at every level)', 'Smooth Union', 'Carve (subtract at every level)', 'Intersect'];
+export const levelShapeValues = v => ({ ...v, shape: v.lvShape | 0, shapeR: v.lvR ?? 0.5, shapeT: v.lvT ?? 0.05, shapeAx: v.lvAx ?? 2,
+  shapeBX: v.lvBX ?? 1, shapeBY: v.lvBY ?? 1, shapeBZ: v.lvBZ ?? 1 });
+// Polynomial smooth min (Inigo Quilez); k ≤ 0 → min.
+export function smin(a, b, k) {
+  if (!(k > 0)) return Math.min(a, b);
+  const h = Math.max(0, Math.min(1, 0.5 + 0.5 * (b - a) / k));
+  return b + (a - b) * h - k * h * (1 - h);
+}
 // Effective Stack A centre for the current values.
 export function stackCenter(v) {
   if ((v.ctrMode | 0) !== 1) return [v.centerX, v.centerY, v.centerZ];
