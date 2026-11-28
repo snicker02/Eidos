@@ -3,7 +3,7 @@
 // Wythoff corner names and the hybrid-schedule description. Organon calls
 // setupUI() once, after the panel is built.
 
-import { STEP_DESC, STEP_NAMES, STACKS, SHAPES, ESTIMATE_TYPES, ESTIMATE_SHAPES, WYTHOFF, sid } from './kifs.js';
+import { STEP_DESC, STEP_NAMES, STACKS, SHAPES, ESTIMATE_TYPES, ESTIMATE_SHAPES, POLY_SHAPES, POLY_PARTS, WYTHOFF, sid } from './kifs.js';
 import { SYMMETRY_GROUPS, symmetryValues } from './presets.js';
 
 export function setupUI({ state, panel, el, toast, pushHistory }) {
@@ -23,7 +23,7 @@ export function setupUI({ state, panel, el, toast, pushHistory }) {
       toast(`Stack A: ${SYMMETRY_GROUPS[i].name.split('  ')[0]}`, 2500);
       sel.value = '';
     });
-    const note = el('div', 'seq-hint', 'Each iteration: pre-rotation → spin → the steps below in order → post-rotation → scale about the centre. Folds, reflections and rotations keep the distance estimate exact (Step Factor 1); a Sphere Inversion step makes it an estimate.');
+    const note = el('div', 'seq-hint', 'Each iteration: pre-rotation → spin → the steps below in order → post-rotation → scale about the centre. Folds (smooth or not), reflections and rotations keep the distance estimate exact (Step Factor 1); a Sphere Inversion, Kleinian, chiral, cyclic or n-flake step makes it an estimate.');
     note.style.marginTop = '0';
     g.prepend(sel, note);
   }
@@ -44,6 +44,7 @@ export function setupUI({ state, panel, el, toast, pushHistory }) {
         }
       }
       if (ESTIMATE_SHAPES.includes(state.get('shape') | 0)) names.add(`${SHAPES[state.get('shape') | 0]} shape`);
+      if ((state.get('lvMode') | 0) > 0 && ESTIMATE_SHAPES.includes(state.get('lvShape') | 0)) names.add(`${SHAPES[state.get('lvShape') | 0]} level shape`);
       return [...names];
     };
     const sync = () => {
@@ -51,7 +52,7 @@ export function setupUI({ state, panel, el, toast, pushHistory }) {
       w.style.display = n.length ? '' : 'none';
       w.textContent = n.length ? `${n.join(', ')}: the DE is an estimate, not a bound. If you see holes or speckle, lower Step Factor (Iteration panel; now ${(+state.get('stepFactor')).toFixed(2)}).` : '';
     };
-    state.onChange(id => { if (id == null || id === 'stepFactor' || id === 'hybridMode' || id === 'shape' || /^[ab]\d+t$/.test(id)) sync(); });
+    state.onChange(id => { if (id == null || id === 'stepFactor' || id === 'hybridMode' || id === 'shape' || id === 'lvMode' || id === 'lvShape' || /^[ab]\d+t$/.test(id)) sync(); });
     sync();
   }
   for (const s of ['a', 'b']) {
@@ -76,6 +77,50 @@ export function setupUI({ state, panel, el, toast, pushHistory }) {
       d.textContent = `Weights on the corners of one ${g.name} mirror cell. A: ${g.labels[0]}, B: ${g.labels[1]}, C: ${g.labels[2]}. One weight → a corner; two → along an edge; three → inside. Use with the matching fold (${g.name.split(' ')[0]} Planes, or its chiral version).`;
     };
     state.onChange(i2 => { if (i2 === 'wyGroup' || i2 == null) sync(); });
+    sync();
+  }
+  {
+    // Fold-and-cut polyhedra: their controls show whenever the seed shape or
+    // the level shape is a polyhedron (two different selects, so ui.js does
+    // the gating). The corner names follow the polyhedron's mirror cell.
+    const ids = ['polyLink', 'polyA', 'polyB', 'polyC', 'polyF1', 'polyF2', 'polyF3', 'polyE', 'polyER', 'polyV', 'polyVR'];
+    const ctl = id => panel.controls.get(id);
+    const head = el('div', 'sub-head');
+    head.append(el('span', '', 'Polyhedron (fold & cut)'));
+    const desc = el('div', 'fold-desc');
+    ctl('polyLink').wrap.before(head, desc);
+    const show = (node, on) => { if (!node) return; node.classList.add('gated'); node.classList.toggle('gate-hidden', !on); };
+    const sync = () => {
+      const seed = POLY_SHAPES.includes(state.get('shape') | 0);
+      const lvl = (state.get('lvMode') | 0) > 0 && POLY_SHAPES.includes(state.get('lvShape') | 0);
+      const on = seed || lvl;
+      const g = (seed ? state.get('shape') : state.get('lvShape')) - 11;
+      const W = WYTHOFF[Math.max(0, Math.min(2, g | 0))];
+      const vis = { polyA: !state.get('polyLink'), polyB: !state.get('polyLink'), polyC: !state.get('polyLink'), polyER: !!state.get('polyE'), polyVR: !!state.get('polyV') };
+      show(head, on); show(desc, on);
+      for (const id of ids) {
+        const c = ctl(id);
+        show(c.wrap, on && vis[id] !== false);
+        if (c.rc) show(c.rc, on && vis[id] !== false);
+      }
+      for (const row of new Set(ids.map(id => ctl(id).wrap.closest('.grid')).filter(Boolean))) show(row, on);
+      desc.textContent = on ? `Knighty's fold-and-cut: fold into one ${W.name} mirror cell, put a vertex at the weighted corners (A: ${W.labels[0]}, B: ${W.labels[1]}, C: ${W.labels[2]}) at distance Size, and keep the faces, edges and vertices you tick. One weight → a regular polyhedron; two → truncated; three → omnitruncated. Fold-count colouring gives each part its own colour (${POLY_PARTS.join(', ')}).` : '';
+    };
+    state.onChange(i2 => { if (i2 == null || ['shape', 'lvMode', 'lvShape', 'polyLink', 'polyE', 'polyV'].includes(i2)) sync(); });
+    sync();
+  }
+  {
+    const d = el('div', 'fold-desc');
+    panel.controls.get('lvMode').wrap.after(d);
+    const TXT = [
+      'Only the final shape counts. Pick a mode to join a second shape at every level of the fractal (level i is the folded space of iteration i, before its scale).',
+      'Union: the level shape is added at every level, an ornament of rings, rods or balls at every scale. Exact.',
+      'Smooth union: as Union, blended into the fractal with Blend Radius (in each level\'s own units). Exact.',
+      'Carve: the level shape is cut out at every level, like the cross of tubes that makes a Menger sponge. Exact.',
+      'Intersect: keep only what lies inside the level shape at every level. Exact.',
+    ];
+    const sync = () => { d.textContent = TXT[state.get('lvMode')] || ''; };
+    state.onChange(i2 => { if (i2 === 'lvMode' || i2 == null) sync(); });
     sync();
   }
   {

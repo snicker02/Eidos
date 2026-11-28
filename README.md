@@ -1,4 +1,4 @@
-# Eidos v1.4.0
+# Eidos v1.5.0
 
 **Eidos** (εἶδος, Greek for "form", the *eidos* in kaleidoscope) is a progressive WebGL1 raymarcher for **Kaleidoscopic IFS** (KIFS) fractals. You build each iteration from a stack of fold steps (abs, plane swaps, Sierpinski, octahedral and icosahedral mirror sets, custom planes, the Menger z-trick, rotations, edge and box folds, dihedral folds, rotation-only (chiral) folds, sphere inversion, and Knighty's pseudo-Kleinian step), and Eidos compiles that stack into a straight-line shader. Mirror folds and rotations keep the distance estimate **exact**, so Step Factor 1.0 never overshoots. Inversions, chiral folds and the Kleinian step trade that for their own looks and are tracked as estimates.
 
@@ -66,6 +66,10 @@ Stack A has 12 slots and Stack B has 8. Pick a fold for **Step 1**, and **Step 2
 | **Chiral Tetrahedral (T) / Octahedral (O) / Icosahedral (I)** | The mirror fold, then one more reflection when the count is odd, so the net map is a rotation: the 12 / 24 / 60 rotations of the group, without mirrors. Handed, twisted shapes (snub-like). Estimate: see below. | — |
 | **Cyclic N-Fold** | Rotate into one of N sectors around an axis (no mirror): a pinwheel. Estimate. | Axis: X, Y, Z |
 | **Kleinian (Knighty)** | Box fold to ±L, invert inside the sphere of radius R only (k = max(R²/\|z\|², 1)), add C. Use Scale 1 and the Kleinian shape. Estimate. | — |
+| **Periodic Mirror Fold** | A box fold that repeats: mirrors at ±L, ±3L, ±5L … on each axis (L = 0 leaves the axis alone), so all of space folds into the box ±L. On iteration 0 only it tiles the fractal into an infinite lattice; on every iteration it makes a periodic sponge (with *Shapes at Every Level*: NewMenger, SphereSponge). Exact. | — |
+| **N-Flake (nearest vertex)** | Syntopia's n-flake: move toward the nearest vertex V of a tetrahedron, octahedron, cube, icosahedron or dodecahedron (at **Vertex Distance**), so the iteration is s·(z − V) + V. Set the scale centre to 0. Estimate (the nearest vertex jumps between regions). | Vertices: 4, 6, 8, 12, 20 |
+
+**Smooth folds** (after Benesi's *MengerSmooth*). Abs, Plane Swaps, Sierpinski, Octahedral Planes, Custom Plane and the mirror Menger z-trick have a **Smooth** box. It rounds every crease: along each fold's normal, |t| becomes √(t² + k²) (a swap keeps x + y and sets x − y to √((x − y)² + k²)). That still has slope ≤ 1, so the DE stays exact. **Softness k** is a uniform, and Smooth is compiled in. Softness 0 gives the hard fold exactly. Large k pushes points outward, so the fractal thins and can vanish: keep k small next to the shape (0.02–0.1).
 
 **Compilation.** The step types and their compiled options make up the program key (`specKey` in `formula/glsl.js`), so each stack compiles once to straight-line GLSL with only the code it needs. Plane normals, limits, angles, N, strengths and colour weights are uniforms, so dragging a slider never recompiles. Programs compile in the background where `KHR_parallel_shader_compile` exists, and the previous image stays up meanwhile.
 
@@ -75,12 +79,13 @@ Stack A has 12 slots and Stack B has 8. Pick a fold for **Step 1**, and **Step 2
 
 ## Exact distance estimate
 
-Every fold step is 1-Lipschitz (a reflection, a fold, a rotation, or a partial reflection with strength between 0 and 1). So an iteration stretches space by exactly |s|, the running derivative is exactly Π|s|, and `shape(F(p)) / dr` is a true lower bound on the distance. **Step Factor** defaults to 1.0, and that is safe. The tests check that every step and option is 1-Lipschitz and that every preset's DE is 1-Lipschitz in p.
+Every fold step is 1-Lipschitz (a reflection, a fold, a rotation, a partial reflection with strength between 0 and 1, a smooth fold, or the periodic mirror fold). So an iteration stretches space by exactly |s|, the running derivative is exactly Π|s|, and `shape(F(p)) / dr` is a true lower bound on the distance. **Step Factor** defaults to 1.0, and that is safe. The tests check that every step and option is 1-Lipschitz and that every preset's DE is 1-Lipschitz in p.
 
 **Some steps are estimates on purpose** (they're listed in `ESTIMATE_TYPES`):
 
 - **Sphere Inversion** and the **Kleinian** step stretch space by R²/|z|², which is unbounded near the centre. They track that stretch in dr. It is the same in every direction (conformal), so this is Mandelbulber's first-order estimate.
 - **Chiral** folds and **Cyclic N-Fold** rotate instead of reflect. Neighbouring regions get different rotations, so the map jumps across the seams between them. Away from the seams it is still exact.
+- **N-Flake** moves each region toward its own vertex, so the map jumps where the nearest vertex changes.
 - The **Kleinian** seed shape is Knighty's heuristic.
 
 While any of these is in use, a note under *Fold Stack A* names them and shows the current Step Factor. Every estimate preset uses 0.8–0.9, and the tests measure that under 1% of steps at that factor land inside the surface (the worst, Twisted Icosahedral, is 0.3%).
@@ -100,7 +105,32 @@ The other exception is the Menger z-trick's **Shift** mode. That is Mandelbulber
 **DE Shape** is the seed solid the folds carve:
 - **Sphere** (radius = Size; 0 = a point, Mandelbulber's KIFS DE), **Box** (half-size × Box Proportions), **Shell** (hollow sphere, Thickness), **Box Frame** (the box's twelve edges: the wireframe-polyhedron look), **Axis Cross** (three rods ±Size along x, y, z), **Torus** (ring of radius Size around the chosen axis), **Capsule** (rod ±Size along the axis). All exact distances.
 - **Octahedron**, **Tetrahedron**: plane-distance lower bounds (never overshoot).
-- **Kleinian (Knighty)**: max(|z.xy| − Offset, |z.xy|·|z_z| / |z|), the shape of the pseudo-Kleinian DE. An estimate. Use a shape that contains the attractor (Sierpinski → tetrahedron, Menger → box, the symmetry presets set one). Then the approximations nest, and the bailout shortcut stays a lower bound too.
+- **Kleinian (Knighty)**: max(|z.xy| − Offset, |z.xy|·|z_z| / |z|), the shape of the pseudo-Kleinian DE. An estimate.
+- **Square Cross**: three infinite square tubes of half-width Size along x, y, z (exact). It is the Menger sponge's carving tool.
+- **Polyhedron · Tetrahedral / Octahedral / Icosahedral** (after Knighty's *Fold and Cut Polyhedra*): see below.
+
+Use a shape that contains the attractor (Sierpinski → tetrahedron, Menger → box, the symmetry presets set one). Then the approximations nest, and the bailout shortcut stays a lower bound too.
+
+### Fold-and-cut polyhedra
+
+The polyhedron shapes fold into one mirror cell of Td, Oh or Ih (the same cells as the Wythoff centre) and put a vertex at the weighted corners: **Corner A / B / C**, at distance **Size**. One weight gives a regular polyhedron, two a truncated one, three an omnitruncated one. With **Vertex from the Wythoff Centre Weights**, the vertex follows the centre picker instead. Tick the parts to keep:
+
+- **Faces A / B / C**: the planes through the vertex whose normals are the cell's corners (one face type per corner). This is a plane-distance lower bound.
+- **Edges** (Edge Radius): segments from the vertex perpendicular to each mirror. Exact.
+- **Vertices** (Vertex Radius): a ball at the vertex. Exact.
+
+With *Fold count* colouring, each part gets its own colour. The tests build every polyhedron by brute force (the orbit of the vertex and its edges under the group) and check the edge and vertex distances against it exactly. They also check that the faces are a bound that passes through every vertex, and that Oh corner A gives the octahedron and corner C the cube. The polyhedron controls appear whenever the seed shape or the level shape is a polyhedron.
+
+## Shapes at every level
+
+*DE Shape → Shapes at Every Level* joins a second shape at every level of the fractal: inside each iteration, after its folds and before its scale (as in Knighty's iterated polyhedra, NewMenger and SphereSponge). Its distance is divided by that level's dr.
+
+- **Union**: add the shape at every level, an ornament of rings, rods, balls or polyhedra at every scale.
+- **Smooth Union**: blend it in with **Blend Radius** (in each level's own units).
+- **Carve**: cut it out at every level, like the cross of tubes that makes a Menger sponge.
+- **Intersect**: keep only what lies inside it at every level.
+
+The **Level Shape** has its own size, thickness, axis and box, a **Position** in the folded frame, and a level range [From, Until). **Colour Offset per Level** shifts the gradient by (level + 1) × offset wherever the level shape decides the surface. All four modes keep the DE exact. Union and intersection of lower bounds are lower bounds, and so is carving, because no |dᵢ| exceeds the distance to that shape's boundary. The polynomial smooth union's gradient is a blend of the two inputs' gradients. The tests check all four for Lipschitz and ordering. They also check that a periodic fold with a carved square cross is NewMenger's sponge and that a carved sphere is SphereSponge, point for point. Mode and level shape are compiled in, and everything else is a uniform.
 
 ## Hybrid · Stack B
 
@@ -116,7 +146,16 @@ Pre-rotation, spin, variation and the DE shape are shared. Turning Stack B on co
 
 Classic KIFS (Sierpinski tetrahedron, Menger sponge, octahedral flake, icosahedral flake, dodecahedral cage, icosahedral dust), rotated KIFS (Knighty's cathedral, twisted Sierpinski, kaleido coral), symmetry groups (hexagonal drum, edge-folded dust), per-iteration variation (spun sponge, drifting flake), sphere inversion (inverted sponge, feathered Sierpinski), Wythoff centres and iteration ranges (truncated octahedral flake, two-phase flake), chiral folds (snub octahedral flake, twisted icosahedral, pentagonal pinwheel), seed shapes (wireframe sponge, ring flake), Kleinian (pseudo-Kleinian caves), and hybrids (Menger ⇄ Sierpinski, an AAB pattern). On a first visit the app opens on the Sierpinski tetrahedron.
 
-**Rebirth** builds a random stack from a symmetry group, sometimes with an extra custom plane, rotation or edge fold, and random rotations. It is checked on the CPU so the camera is outside the shape and some of it is in view. **Evolve** and the **Mutation Grid** mutate only the controls that are live in the current stack.
+Added in 1.5.0:
+
+- **FragM classics**, ported from the Fragmentarium examples with their own settings: Koch Surface (Knighty's *Koch01*, its default preset), Treebroccoli (Kali), Octahedron and Dodecahedron (Syntopia), MultiIFS (Tryptophan, mode 0). The tests run each one against its .frag DE loop, transcribed, and they agree to 1e-9.
+- **Smooth folds**: Smooth Menger (after Benesi), Soft Kaleido Coral.
+- **Periodic fold**: Sierpinski Lattice, Menger Lattice (NewMenger), Sphere Sponge. The camera starts inside these three infinite worlds.
+- **N-flakes**: Sierpinski Octahedron, Icosahedron Flake, Dodecahedron Flake (with polyhedron seeds).
+- **Fold & cut polyhedra**: Truncated Icosahedron (a football: pentagons and hexagons, with ball-and-stick edges), Ball-and-Stick Flake, Polyhedral Ornament.
+- **Shapes at every level**: Armillary Ornament (rings at every level of an icosahedral flake), Octahedral Rings (after Syntopia's *OctahedronOT*), Bubble-Carved Menger, Smooth-Union Flake.
+
+**Rebirth** builds a random stack from a symmetry group, sometimes with an extra custom plane, rotation or edge fold, smooth folds or rings at every level, and random rotations. It is checked on the CPU so the camera is outside the shape and some of it is in view. **Evolve** and the **Mutation Grid** mutate only the controls that are live in the current stack.
 
 ## Mandelbulber import
 
@@ -478,7 +517,9 @@ The tests check that it compiles in every render mode, that it is 1-Lipschitz, a
 npm test                                  # schema, camera, fold steps (Lipschitz, group cells), exact DE,
                                           # symmetry invariance, spec keys, hybrids, colour, sequencer,
                                           # codec, materials, lights, repetition, Mandelbulber import,
-                                          # evolve/rebirth, zip — and glslangValidator over 153 programs
+                                          # evolve/rebirth, zip, smooth folds, periodic fold, n-flake,
+                                          # polyhedra (brute force), level shapes, FragM ports —
+                                          # and glslangValidator over 254 programs
 python3 -m http.server 8000 & node tests/browser.mjs
 ```
 
@@ -490,7 +531,28 @@ python3 -m http.server 8000 & node tests/browser.mjs
 - the materials, lights, mutation grid, click tools, deep zoom, video and PNG-frame exports;
 - the layouts at 390×844 and 844×390 with touch (docked view, tabs, one-finger orbit) and at 1440×900 desktop.
 
+## Credits
+
+The 1.5.0 features and presets come from the [Fragmentarium examples](https://github.com/3Dickulus/Fragmentarium_Examples_Folder) that ship with [FragM](https://github.com/3Dickulus/FragM). Eidos re-implements the maths; no shader code was copied. Thanks to their authors:
+
+- **Knighty**: *Fold and Cut Polyhedra* (the polyhedron shapes), *Icosahedral_polyhedra_iterated* (polyhedra at every level), *Koch01* (the Koch Surface preset), and the pseudo-Kleinian DE (since 1.2.0).
+- **Mikael Hvidtfeldt Christensen (Syntopia)**: *Tetrahedron-Alternative* (the N-Flake step), *Octahedron*, *Dodecahedron* and *OctahedronOT* (presets, and orbit shapes at every level).
+- **M. Benesi**: *MengerSmooth* (smooth folds).
+- **Kali**: *Treebroccoli*.
+- **Tryptophan**: *MultiIFS*.
+- *NewMenger* and *SphereSponge* (the periodic fold and carving at every level).
+- **Inigo Quilez**: the polynomial smooth minimum, the box-frame distance and the carved-cross Menger.
+
 ## Changelog
+
+**1.5.0** — Five additions from the FragM / Fragmentarium examples:
+- **Shapes at every level**: Union, Smooth Union, Carve or Intersect a second shape at every iteration, with its own size, position, level range and per-level colour. Exact.
+- **Fold-and-cut polyhedra** (Knighty): three new seed shapes (Td, Oh, Ih). Corner weights pick the uniform polyhedron (or follow the Wythoff centre), and you choose which faces, edges and vertices to keep. Each part has its own fold-count colour.
+- **Smooth folds** (Benesi): a Smooth box and Softness on Abs, Plane Swaps, Sierpinski, Octahedral, Custom Plane and the mirror z-trick. Exact.
+- **Periodic Mirror Fold**: a repeating box fold for infinite lattices and periodic sponges. Exact.
+- **N-Flake** step (Syntopia): nearest-vertex IFS on 4, 6, 8, 12 or 20 vertices. An estimate.
+
+Also: a **Square Cross** seed shape, 20 presets in six new groups (credited above), and Rebirth sometimes adds smooth folds or level rings. The new tests cover Lipschitz checks for all 15 smooth variants and the periodic fold, ports of six FragM DE loops plus Benesi's, NewMenger and SphereSponge, brute-force polyhedra, the level-shape ordering, and glslangValidator over 254 programs. Existing presets, links and projects are unchanged.
 
 **1.4.0** — Now runs on [Organon](https://github.com/snicker02/Organon) 1.0.0, the engine shared with Kyma, as a git submodule at `core/`. The KIFS formula moved to `formula/`. There is no change to how Eidos looks or works: every preset renders pixel-identical images, and old links and projects load the same.
 

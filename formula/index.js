@@ -11,7 +11,7 @@ import { BIOMES, PRESET_GROUPS, symmetryValues, rebirthCandidate, REBIRTH_TARGET
 import { importFract } from './mbimport.js';
 import { setupUI } from './ui.js';
 
-export const VERSION = '1.4.0';
+export const VERSION = '1.5.0';
 
 const formula = {
   id: 'eidos',

@@ -8,7 +8,7 @@ import { Sequencer, MODE, EASE } from './lib.mjs';
 import { encodeDiscovery, decodeDiscovery, evolve, rebirth, makeProject, parseProject, BIOMES, SYMMETRY_GROUPS, symmetryValues, isActive } from './lib.mjs';
 import { sceneUniforms, jitterFor, lensFor, specOf, specKey } from './lib.mjs';
 import { FRACTAL_FRAG, fractalFrag } from './lib.mjs';
-import { T, ABS_MASKS, SWAP_MODES, ROT_PIVOTS, AXES, ZTRICK_MODES, STACKS, SHAPES, stackOf, slotData, cpuStack, hybridUsesB, stackValues, ICO_N, ESTIMATE_TYPES, ESTIMATE_SHAPES, WYTHOFF, stackCenter, shapeFn } from '../formula/kifs.js';
+import { T, ABS_MASKS, SWAP_MODES, ROT_PIVOTS, AXES, ZTRICK_MODES, STACKS, SHAPES, stackOf, slotData, cpuStack, hybridUsesB, stackValues, ICO_N, ESTIMATE_TYPES, ESTIMATE_SHAPES, WYTHOFF, stackCenter, shapeFn, SMOOTH_TYPES, FLAKE_POLYS, FLAKE_VERTS, POLY, polyFn, polyDir, LEVEL_MODES, smin } from '../formula/kifs.js';
 import { spawnSync } from 'node:child_process';
 import { ZipWriter, crc32 } from './lib.mjs';
 import { writeFileSync, readFileSync } from 'node:fs';
@@ -134,9 +134,11 @@ section('fractal rotation');
 // ── Fold steps ──────────────────────────────────────────────────────────────
 // Every step type × compile-time option is 1-Lipschitz (folds, reflections,
 // rotations, partial reflections): the property that makes the DE exact.
-const OPTIONS = { [T.ABS]: ABS_MASKS.length, [T.SWAP]: SWAP_MODES.length, [T.ZTRICK]: ZTRICK_MODES.length, [T.ROT]: ROT_PIVOTS.length, [T.DIHEDRAL]: AXES.length, [T.CYCLIC]: AXES.length };
+const OPTIONS = { [T.ABS]: ABS_MASKS.length, [T.SWAP]: SWAP_MODES.length, [T.ZTRICK]: ZTRICK_MODES.length, [T.ROT]: ROT_PIVOTS.length, [T.DIHEDRAL]: AXES.length, [T.CYCLIC]: AXES.length, [T.NFLAKE]: FLAKE_POLYS.length };
 const ALL_STEPS = [];
 for (let t = 1; t < STEP_NAMES.length; t++) for (let o = 0; o < (OPTIONS[t] || 1); o++) ALL_STEPS.push({ t, o });
+// Smooth variants (Benesi) of every smoothable step × option (not the shift z-trick).
+const SMOOTH_STEPS = ALL_STEPS.filter(x => SMOOTH_TYPES.includes(x.t) && !(x.t === T.ZTRICK && x.o === 1)).map(x => ({ ...x, sm: 1 }));
 section('fold steps');
 {
   let worst = 0, worstName = '';
@@ -369,7 +371,7 @@ section('ranges, wythoff, shapes');
   ok(dist3(stackCenter({ ...defaults(), ctrMode: 0, centerX: 0.3, centerY: -0.2, centerZ: 0.9 }), [0.3, -0.2, 0.9]) === 0, 'manual centre unchanged');
   // Seed shapes 0–8 are exact distances: 1-Lipschitz, and |d| = distance to
   // the zero set where it was checked by bisection along a ray.
-  const BOUND_ONLY = [2, 3];
+  const BOUND_ONLY = [2, 3, 11, 12, 13]; // plane-distance lower bounds (polyhedra: their faces)
   for (let sh = 0; sh < SHAPES.length; sh++) {
     if (ESTIMATE_SHAPES.includes(sh)) continue;
     const f = shapeFn({ shape: sh, shapeR: 0.8, shapeT: 0.12, shapeBX: 1.2, shapeBY: 0.7, shapeBZ: 1, shapeAx: sh % 3 });
@@ -391,6 +393,364 @@ section('ranges, wythoff, shapes');
   }
 }
 
+
+// ── 1.5.0: smooth folds, periodic fold, n-flake, polyhedra, level shapes ──────
+// Ports of the FragM (Fragmentarium) originals these come from, written as the
+// .frag files do it, and brute-force checks of the polyhedron distances.
+section('smooth folds');
+{
+  const runStep = (st, s = 2.3, c = [1, 0.7, 0.4]) => {
+    const v = { ...defaults(), ...stackValues('a', [st]) };
+    const run = cpuStack(v, 'a', stackOf(v, 'a'));
+    return z => run(z, s, c, { fold: 0, colOn: 1, traps: {}, w: {} });
+  };
+  let worst = 0, worstName = '', zeroK = 0, dev = 0;
+  for (const { t, o } of SMOOTH_STEPS) {
+    for (let trial = 0; trial < 6; trial++) {
+      const k = rnd() * 0.4;
+      const st = { t, abs: o, swap: o, zm: o, sm: true, sk: k, nx: rnd() * 2 - 1, ny: rnd() * 2 - 1, nz: rnd() * 2 - 1, d: rnd() - 0.5, k: rnd() };
+      const s = (rnd() < 0.2 ? -1 : 1) * (1.2 + rnd() * 2), c = rv(1.5);
+      const f = runStep(st, s, c), f0 = runStep({ ...st, sk: 0 }, s, c), hard = runStep({ ...st, sm: false }, s, c);
+      for (let i = 0; i < 300; i++) {
+        const a = rv(3), b = rnd() < 0.5 ? rv(3) : a.map(x => x + (rnd() - 0.5) * 0.02);
+        const r = dist3(f(a), f(b)) / Math.max(dist3(a, b), 1e-300);
+        if (r > worst) { worst = r; worstName = `${STEP_NAMES[t]} opt ${o}`; }
+        zeroK = Math.max(zeroK, dist3(f0(a), hard(a)));
+        dev = Math.max(dev, dist3(f(a), hard(a)) / Math.max(k, 1e-9));
+      }
+    }
+  }
+  ok(worst <= 1 + 1e-9, `all ${SMOOTH_STEPS.length} smooth step × option variants are 1-Lipschitz (worst ${worst.toFixed(12)} — ${worstName})`);
+  ok(zeroK < 1e-12, `Softness 0 gives the hard fold exactly (max diff ${zeroK.toExponential(1)})`);
+  ok(dev <= 2.2, `smooth folds stay within ~k of the hard fold (worst ${dev.toFixed(3)}·k)`);
+  // Benesi's MengerSmooth.frag (no rotation or spheric options), as written:
+  // abs → √(x² + s); three soft swaps; soft z-trick; scale about C = (1, 1, .5).
+  const benesi = (z, sc, sv, n) => {
+    const sc1 = sc - 1, sc2 = sc1 / sc, C = [1, 1, 0.5];
+    let [x, y, w] = z, W = 1;
+    for (let i = 0; i < n; i++) {
+      x = Math.sqrt(x * x + sv); y = Math.sqrt(y * y + sv); w = Math.sqrt(w * w + sv);
+      let t = x - y; t = 0.5 * (t - Math.sqrt(t * t + sv)); x -= t; y += t;
+      t = x - w; t = 0.5 * (t - Math.sqrt(t * t + sv)); x -= t; w += t;
+      t = y - w; t = 0.5 * (t - Math.sqrt(t * t + sv)); y -= t; w += t;
+      w = w - C[2] * sc2; w = -Math.sqrt(w * w + sv); w = w + C[2] * sc2;
+      x = sc * x - C[0] * sc1; y = sc * y - C[1] * sc1; w = sc * w;
+      W *= sc;
+    }
+    return Math.hypot(x, y, w) / W;
+  };
+  let wb = 0;
+  for (let trial = 0; trial < 4; trial++) {
+    const sv = 0.001 + rnd() * 0.01, sc = 2.6 + rnd() * 0.6, n = 4 + trial;
+    const v = { ...defaults(), ...stackValues('a', [{ t: T.OCTA, sm: true, sk: Math.sqrt(sv) }, { t: T.ZTRICK, sm: true, sk: Math.sqrt(sv) }]),
+      scale: sc, centerX: 1, centerY: 1, centerZ: 1, shape: 0, shapeR: 0, iterations: n, bailout: 1e12 };
+    const m = makeDE(v).local;
+    for (let i = 0; i < 200; i++) { const p = rv(1.5), ref = benesi(p, sc, sv, n); wb = Math.max(wb, Math.abs(m(p).d - ref) / Math.max(ref, 1e-9)); }
+  }
+  ok(wb < 1e-9, `smooth Octahedral + z-trick match Benesi's MengerSmooth (worst rel ${wb.toExponential(1)})`);
+  ok(specKey(specOf(sceneUniforms({ ...defaults(), a1sm: true }))) !== specKey(specOf(sceneUniforms(defaults()))), 'Smooth is compiled in');
+  ok(specKey(specOf(sceneUniforms({ ...defaults(), a1sm: true, a1sk: 0.1 }))) === specKey(specOf(sceneUniforms({ ...defaults(), a1sm: true, a1sk: 0.3 }))), 'Softness is a uniform');
+  ok(specKey(specOf(sceneUniforms({ ...defaults(), a1t: T.ICOSA, a1sm: true }))) === specKey(specOf(sceneUniforms({ ...defaults(), a1t: T.ICOSA }))), 'Smooth on a step without a smooth form is ignored');
+}
+
+section('periodic mirror fold');
+{
+  const v = { ...defaults(), ...stackValues('a', [{ t: T.PERIOD, lx: 0.7, ly: 1.3, lz: 0 }]) };
+  const run = cpuStack(v, 'a', stackOf(v, 'a'));
+  const f = z => run(z, 2, [0, 0, 0], { fold: 0, colOn: 1, traps: {}, w: {} });
+  let idIn = 0, per = 0, inBox = true, lip = 0, mir = 0;
+  for (let i = 0; i < 2000; i++) {
+    const p = rv(8);
+    const q = [p[0] * 0.7 / 8, p[1] * 1.3 / 8, p[2]];
+    idIn = Math.max(idIn, dist3(f(q), q)); // identity on [−L, L] (and on the free axis)
+    per = Math.max(per, dist3(f(p), f([p[0] + 4 * 0.7, p[1] - 4 * 1.3, p[2]])));
+    const fp = f(p); inBox = inBox && Math.abs(fp[0]) <= 0.7 + 1e-12 && Math.abs(fp[1]) <= 1.3 + 1e-12 && fp[2] === p[2];
+    mir = Math.max(mir, dist3(fp, f([2 * 0.7 - p[0], p[1], p[2]]))); // mirror at x = L
+    const b = p.map(x => x + (rnd() - 0.5) * 0.05);
+    lip = Math.max(lip, dist3(fp, f(b)) / dist3(p, b));
+  }
+  ok(idIn < 1e-12 && inBox, 'identity on the box ±L, folds everything into it, L = 0 leaves the axis alone');
+  ok(per < 1e-9 && mir < 1e-9, `period 4L, mirror at x = L (diffs ${per.toExponential(1)}, ${mir.toExponential(1)})`);
+  ok(lip <= 1 + 1e-9, `1-Lipschitz (worst ${lip.toFixed(12)})`);
+}
+
+section('n-flake');
+{
+  // Each vertex set: unit vectors, the right count, and the right number of
+  // nearest neighbours (tetra 3, octa 4, cube 3, icosa 5, dodeca 3).
+  const NB = [3, 4, 3, 5, 3], COUNT = [4, 6, 8, 12, 20];
+  FLAKE_VERTS.forEach((V, i) => {
+    const unit = V.every(v => near(Math.hypot(...v), 1, 1e-12));
+    const nb = V.map(a => { const ds = V.map(b => dist3(a, b)).filter(d => d > 1e-9); const m = Math.min(...ds); return ds.filter(d => d < m + 1e-9).length; });
+    ok(V.length === COUNT[i] && unit && nb.every(n => n === NB[i]), `${FLAKE_POLYS[i]}: ${V.length} unit vertices, ${NB[i]} nearest neighbours each`);
+  });
+  // Syntopia's Tetrahedron-Alternative.frag: z = Scale·z − c·(Scale − 1) with c
+  // the nearest of (±1, ±1, ±1) (even sign changes), DE = |z|·Scale⁻ⁿ.
+  const verts = [[1, 1, 1], [-1, -1, 1], [1, -1, -1], [-1, 1, -1]];
+  const syntopia = (z, S, n) => {
+    for (let k = 0; k < n; k++) {
+      let c = verts[0], dist = 0;
+      verts.forEach((v, i) => { const d = dist3(z, v); if (i === 0 || d < dist) { c = v; dist = d; } });
+      z = z.map((x, j) => S * x - c[j] * (S - 1));
+    }
+    return Math.hypot(...z) * S ** -n;
+  };
+  let w = 0;
+  for (const S of [2, 2.3]) {
+    const v = { ...defaults(), ...stackValues('a', [{ t: T.NFLAKE, fp: 0, fr: Math.sqrt(3) }]), scale: S, centerX: 0, centerY: 0, centerZ: 0, shape: 0, shapeR: 0, iterations: 9, bailout: 1e12 };
+    const m = makeDE(v).local;
+    for (let i = 0; i < 300; i++) { const p = rv(2), ref = syntopia(p, S, 9); w = Math.max(w, Math.abs(m(p).d - ref) / ref); }
+  }
+  ok(w < 1e-9, `N-Flake matches Syntopia's Tetrahedron-Alternative (worst rel ${w.toExponential(1)})`);
+  // Any scale centre: the step makes the iteration s·(z − V) + V.
+  const v2 = { ...defaults(), ...stackValues('a', [{ t: T.NFLAKE, fp: 3, fr: 1.2 }]), scale: 2.6, centerX: 0.3, centerY: -0.4, centerZ: 0.2 };
+  const run = cpuStack(v2, 'a', stackOf(v2, 'a'));
+  let wc = 0;
+  for (let i = 0; i < 300; i++) {
+    const p = rv(2), c = [0.3, -0.4, 0.2], y = run(p, 2.6, c, { fold: 0, colOn: 1, traps: {}, w: {} });
+    const V = FLAKE_VERTS[3].reduce((b, q) => (dot(p, q) > dot(p, b) ? q : b)).map(x => x * 1.2);
+    wc = Math.max(wc, dist3(y.map((x, j) => 2.6 * (x - c[j]) + c[j]), p.map((x, j) => 2.6 * (x - V[j]) + V[j])));
+  }
+  ok(wc < 1e-12, 'with any centre, one iteration is s·(z − V) + V for the nearest vertex V');
+}
+
+section('fold-and-cut polyhedra');
+{
+  const reflect = (p, n) => { const t = 2 * dot(p, n); return p.map((x, i) => x - t * n[i]); };
+  const key = p => p.map(x => x.toFixed(7)).join(',');
+  // Orbit of a point under the group generated by the cell's three mirrors.
+  const orbit = (P, N) => {
+    const seen = new Map([[key(P), P]]), q = [P];
+    while (q.length) { const a = q.pop(); for (const n of N) { const b = reflect(a, n), k = key(b); if (!seen.has(k)) { seen.set(k, b); q.push(b); } } }
+    return [...seen.values()];
+  };
+  const segD = (p, a, b) => { const ab = sub(b, a), t = Math.max(0, Math.min(1, dot(sub(p, a), ab) / Math.max(dot(ab, ab), 1e-30))); return dist3(p, a.map((x, i) => x + t * ab[i])); };
+  const ORDER = [24, 48, 120];
+  for (let g = 0; g < 3; g++) {
+    const N = POLY[g].mirrors;
+    ok(N.every(n => near(Math.hypot(...n), 1, 1e-12)) && WYTHOFF[g].corners.every(c => N.every(n => dot(c, n) >= -1e-12)), `${WYTHOFF[g].name}: unit mirrors, corners inside the cell`);
+    ok(orbit([0.31, 0.17, 0.05].map((x, i) => x + i * 1e-3), N).length === ORDER[g] || orbit(WYTHOFF[g].corners.reduce((a, c, k) => a.map((x, i) => x + [0.5, 0.3, 0.2][k] * c[i]), [0, 0, 0]), N).length === ORDER[g], `${WYTHOFF[g].name}: the mirrors generate a group of ${ORDER[g]}`);
+    for (let trial = 0; trial < 3; trial++) {
+      const w = [rnd(), rnd(), rnd()], R = 0.6 + rnd(), ER = 0.01 + rnd() * 0.05, VR = 0.02 + rnd() * 0.08;
+      const base = { polyA: w[0], polyB: w[1], polyC: w[2] };
+      const P = polyDir(base, g).map(x => x * R);
+      const V = orbit(P, N);
+      // Edges: P to its mirror image across each mirror, and every copy.
+      const E0 = N.map(n => [P, reflect(P, n)]).filter(([a, b]) => dist3(a, b) > 1e-9);
+      const ek = ([a, b]) => [key(a), key(b)].sort().join('|');
+      const seenE = new Map(E0.map(e => [ek(e), e])), qe = [...E0];
+      while (qe.length) { const [a, b] = qe.pop(); for (const n of N) { const e = [reflect(a, n), reflect(b, n)], k2 = ek(e); if (!seenE.has(k2)) { seenE.set(k2, e); qe.push(e); } } }
+      const E = [...seenE.values()];
+      const fE = polyFn({ ...base, polyF1: false, polyF2: false, polyF3: false, polyE: true, polyER: ER }, g, R);
+      const fV = polyFn({ ...base, polyF1: false, polyF2: false, polyF3: false, polyV: true, polyVR: VR }, g, R);
+      const fF = polyFn({ ...base }, g, R);
+      let we = 0, wv = 0, fOk = true, lip = 0;
+      for (let i = 0; i < 300; i++) {
+        const p = rv(2);
+        we = Math.max(we, Math.abs(fE(p) - (Math.min(...E.map(([a, b]) => segD(p, a, b))) - ER)));
+        wv = Math.max(wv, Math.abs(fV(p) - (Math.min(...V.map(a => dist3(p, a))) - VR)));
+        // Faces: a lower bound — never more than the distance to a vertex.
+        fOk = fOk && fF(p) <= Math.min(...V.map(a => dist3(p, a))) + 1e-9;
+        const q = p.map(x => x + (rnd() - 0.5) * 0.05);
+        lip = Math.max(lip, Math.abs(fF(p) - fF(q)) / dist3(p, q));
+      }
+      const onV = V.every(a => Math.abs(fF(a)) < 1e-9);
+      ok(we < 1e-9 && wv < 1e-9, `${WYTHOFF[g].name} polyhedron (${V.length} vertices, ${E.length} edges): edges & vertices exact vs brute force (${we.toExponential(1)}, ${wv.toExponential(1)})`);
+      ok(fOk && onV && lip <= 1 + 1e-9, `${WYTHOFF[g].name} polyhedron: faces a 1-Lipschitz bound through every vertex (bound ${fOk}, on vertices ${onV}, Lipschitz ${lip.toFixed(9)})`);
+    }
+  }
+  // Regular cases: Oh corner A → the octahedron, corner C → the cube.
+  const oct = shapeFn({ shape: 2, shapeR: 1 }), box = shapeFn({ shape: 1, shapeR: 1 / Math.sqrt(3) });
+  const pO = polyFn({ polyA: 1, polyB: 0, polyC: 0 }, 1, 1), pC = polyFn({ polyA: 0, polyB: 0, polyC: 1 }, 1, 1);
+  let sgn = 0, bnd = true;
+  for (let i = 0; i < 2000; i++) {
+    const p = rv(2);
+    if (Math.abs(oct(p)) > 1e-6 && Math.sign(oct(p)) !== Math.sign(pO(p))) sgn++;
+    if (Math.abs(box(p)) > 1e-6 && Math.sign(box(p)) !== Math.sign(pC(p))) sgn++;
+    bnd = bnd && pO(p) >= oct(p) - 1e-7 && pC(p) <= box(p) + 1e-9; // octahedron shape uses 0.57735027 for 1/√3
+  }
+  ok(sgn === 0 && bnd, `Oh corner A is the octahedron, corner C the cube (sign disagreements ${sgn}, bounds ${bnd})`);
+  ok(near(polyFn({ polyA: 1, polyB: 0, polyC: 0 }, 2, 1)([0, 0, 0]), -1 / Math.sqrt(3) * (1 / Math.sqrt(3)) * Math.sqrt(3) * Math.sqrt((5 + 2 * Math.sqrt(5)) / 15) * Math.sqrt(3), 1e-9)
+    || near(-polyFn({ polyA: 1, polyB: 0, polyC: 0 }, 2, 1)([0, 0, 0]), dot(WYTHOFF[2].corners[0], WYTHOFF[2].corners[2]), 1e-9), 'Ih corner A: the icosahedron (inradius = cos of the vertex–face-centre angle)');
+  const lk = { wyA: 0.2, wyB: 0.7, wyC: 0.1, polyLink: true };
+  ok(dist3(polyDir(lk, 1), polyDir({ polyA: 0.2, polyB: 0.7, polyC: 0.1 }, 1)) < 1e-12, 'Link takes the vertex weights from the Wythoff centre');
+  ok(specKey(specOf(sceneUniforms({ ...defaults(), shape: 12, polyA: 0.3 }))) === specKey(specOf(sceneUniforms({ ...defaults(), shape: 12, polyA: 0.9, polyE: true }))), 'polyhedron weights and parts are uniforms');
+}
+
+section('shapes at every level');
+{
+  const base = { ...defaults(), ...BIOMES.octa.v, bailout: 1e6, iterations: 7 };
+  const lvl = m => ({ ...base, lvMode: m, lvShape: 7, lvR: 0.5, lvT: 0.06, lvOX: 0.4, lvOY: 0.1 });
+  const m0 = makeDE(base).local, mU = makeDE(lvl(1)).local, mS = makeDE({ ...lvl(2), lvK: 0.2 }).local, mC = makeDE(lvl(3)).local, mI = makeDE(lvl(4)).local;
+  const mE = makeDE({ ...lvl(1), lvFrom: 3, lvUntil: 3 }).local;
+  let order = true, empty = 0, lip = 0, changed = 0;
+  for (let i = 0; i < 400; i++) {
+    const p = rv(2.2), d0 = m0(p).d;
+    order = order && mS(p).d <= mU(p).d + 1e-12 && mU(p).d <= d0 + 1e-12 && mC(p).d >= d0 - 1e-12 && mI(p).d >= d0 - 1e-12;
+    empty = Math.max(empty, Math.abs(mE(p).d - d0));
+    if (Math.abs(mU(p).d - d0) > 1e-6) changed++;
+    const q = p.map(x => x + (rnd() - 0.5) * 0.05);
+    for (const m of [mU, mS, mC, mI]) lip = Math.max(lip, Math.abs(m(p).d - m(q).d) / dist3(p, q));
+  }
+  ok(order, 'smooth union ≤ union ≤ final shape ≤ carve, intersect');
+  ok(empty === 0 && changed > 20, `an empty level range changes nothing; a full one does (${changed}/400 points)`);
+  ok(lip <= 1 + 1e-7, `union, smooth union, carve and intersect stay 1-Lipschitz (worst ${lip.toFixed(9)})`);
+  // NewMenger.frag (Offset 0, no rotation) on the folded cell, and the
+  // Eidos lattice: periodic fold L = 1, scale 3 about 0, carve a square cross
+  // of half-width 1/3 at every level. Same solid (the .frag uses Chebyshev
+  // distances, so compare signs).
+  const newMenger = (p, n) => {
+    p = p.map(x => x * 0.5 + 0.5);
+    let pp = p.map(x => Math.abs(x - 0.5) - 0.5), k = 1, d = Math.max(...pp);
+    for (let i = 0; i < n; i++) {
+      const pa = p.map(x => fmod(3 * x * k, 3)); k *= 3;
+      pp = pa.map(x => 0.5 - Math.abs(x - 1.5));
+      d = Math.max(d, Math.min(Math.max(pp[0], pp[2]), Math.max(pp[0], pp[1]), Math.max(pp[1], pp[2])) / k);
+    }
+    return d;
+  };
+  const fmod = (x, y) => x - y * Math.floor(x / y);
+  const tri = x => Math.abs(fmod(x - 1, 4) - 2) - 1;
+  const lat = { ...defaults(), ...stackValues('a', [{ t: T.PERIOD, lx: 1, ly: 1, lz: 1 }]), scale: 3, centerX: 0, centerY: 0, centerZ: 0,
+    shape: 1, shapeR: 10, lvMode: 3, lvShape: 10, lvR: 1 / 3, iterations: 4, bailout: 1e6 };
+  const mL = makeDE(lat).local;
+  let bad = 0, n = 0;
+  for (let i = 0; i < 3000; i++) {
+    const p = rv(5), ref = newMenger(p.map(tri), 4), d = mL(p).d;
+    if (Math.abs(ref) < 1e-4 || Math.abs(d) < 1e-6) continue;
+    n++; if (Math.sign(ref) !== Math.sign(d)) bad++;
+  }
+  ok(n > 2000 && bad === 0, `periodic fold + carved square cross = NewMenger's sponge, tiled (${n} points, ${bad} disagree)`);
+  // SphereSponge.frag: d = max over levels of (Bubble − |mod(z·k, 4) − 2|)/k,
+  // z offset by (1, 1, 1), k = 2·3^i: the same lattice with a sphere carved.
+  const sphereSponge = (z, n, B) => {
+    z = z.map(x => x + 1);
+    let k = 2, d = 0;
+    for (let l = 0; l < n; l++) { const p2 = z.map(x => fmod(x * k, 4) - 2); d = Math.max(d, (B - Math.hypot(...p2)) / k); k *= 3; }
+    return d;
+  };
+  const B = 2.07;
+  const sp = { ...lat, lvShape: 0, lvR: B / 2 };
+  const mSp = makeDE(sp).local;
+  bad = 0; n = 0;
+  for (let i = 0; i < 3000; i++) {
+    const p = rv(5), ref = sphereSponge(p, 4, B), d = mSp(p).d;
+    if (Math.abs(ref) < 1e-4 || Math.abs(d) < 1e-6) continue;
+    n++; if ((ref > 0) !== (d > 0)) bad++;
+  }
+  ok(n > 2000 && bad === 0, `periodic fold + carved sphere = SphereSponge (${n} points, ${bad} disagree)`);
+  // Knighty's iterated polyhedra: d = min over levels of D(fold(pos))·Scale⁻ⁱ
+  // — a level union of the polyhedron with no other folds.
+  ok(specKey(specOf(sceneUniforms(lvl(1)))) !== specKey(specOf(sceneUniforms(base))) && specKey(specOf(sceneUniforms({ ...lvl(1), lvR: 0.9, lvFrom: 2 }))) === specKey(specOf(sceneUniforms(lvl(1)))), 'level mode and shape compiled in; sizes and ranges are uniforms');
+  ok(LEVEL_MODES.length === 5 && near(smin(1, 2, 0), 1) && smin(1, 1, 0.5) < 1, 'smooth min');
+}
+
+// ── FragM preset ports ──────────────────────────────────────────────────────
+// Each preset against its .frag DE loop, transcribed (rotationMatrix3 as
+// Fragmentarium builds it: column-major, so `rot * z` turns by −angle).
+section('fragm ports');
+{
+  const fragRot = (axis, deg) => { // the GLSL mat3 as a JS function of `rot * z`
+    const l = Math.hypot(...axis), [x, y, z] = axis.map(a => a / l), c = Math.cos(deg * Math.PI / 180), s = Math.sin(deg * Math.PI / 180), C = 1 - c;
+    const col = [[c + C * x * x, C * x * y - s * z, C * x * z + s * y], [C * x * y + s * z, c + C * y * y, C * y * z - s * x], [C * x * z - s * y, C * y * z + s * x, c + C * z * z]];
+    return { mul: v => [0, 1, 2].map(r => col[0][r] * v[0] + col[1][r] * v[1] + col[2][r] * v[2]), // rot * v
+      pre: v => [0, 1, 2].map(r => col[r][0] * v[0] + col[r][1] * v[1] + col[r][2] * v[2]) }; // v * rot
+  };
+  const compare = (key, ref, R = 1.6, o = {}) => {
+    const v = { ...defaults(), ...BIOMES[key].v, ...o };
+    const m = makeDE(v).local;
+    let w = 0, n = 0;
+    for (let i = 0; i < 400; i++) {
+      const p = rv(R), a = m(p).d, b = ref(p);
+      if (!Number.isFinite(b)) continue;
+      w = Math.max(w, Math.abs(a - b) / Math.max(Math.abs(b), 1e-6)); n++;
+    }
+    ok(n > 300 && w < 1e-9, `${BIOMES[key].label}: matches the .frag DE (worst rel ${w.toExponential(1)})`);
+  };
+  // Knighty, Koch01.frag
+  const kr = fragRot([0.25, 0.43333, 0.5], 0); // its preset: RotAngle 0
+  compare('koch', p => {
+    let z = [...p], n = 0;
+    const O = [2, 0.54944, -0.06592], S = 2.37624, Y = 0.333333;
+    while (n < 12 && dot(z, z) < 10000) {
+      z = [Math.abs(z[0]), Math.abs(z[1]), z[2]];
+      if (z[1] > z[0]) z = [z[1], z[0], z[2]];
+      z[1] = Y - Math.abs(z[1] - Y);
+      z[0] += 1 / 3; if (z[2] > z[0]) z = [z[2], z[1], z[0]]; z[0] -= 1 / 3;
+      z[0] -= 1 / 3; if (z[2] > z[0]) z = [z[2], z[1], z[0]]; z[0] += 1 / 3;
+      z = z.map((x, j) => S * (x - O[j]) + O[j]);
+      z = kr.mul(z);
+      n++;
+    }
+    return Math.abs(Math.hypot(...z) - Math.hypot(...O)) * S ** -n;
+  }, 2.5);
+  // Kali, Treebroccoli.frag (its preset)
+  const br = fragRot([0.2174, 1, 0.02174], 93.2544);
+  compare('broccoli', p => {
+    let z = [...p];
+    const F = [0.13008, 0.04564315], J = [-0.03034482, -0.80827584, -0.15862068], S = 1.44915;
+    let l = 0;
+    for (let i = 0; i < 20; i++) {
+      z = br.pre(z);
+      z = [Math.abs(z[0] + F[0]) - F[0], Math.abs(z[1] + F[1]) - F[1], z[2]];
+      z = z.map((x, j) => x * S + J[j]);
+      l = Math.hypot(...z);
+    }
+    return l * S ** -20;
+  }, 1.6, { bailout: 1e6 });
+  // Syntopia, Kaleidoscopic IFS/Octahedron.frag
+  compare('synocta', p => {
+    let z = [...p];
+    for (let n = 0; n < 13; n++) {
+      if (z[0] + z[1] < 0) z = [-z[1], -z[0], z[2]];
+      if (z[0] + z[2] < 0) z = [-z[2], z[1], -z[0]];
+      if (z[0] - z[1] < 0) z = [z[1], z[0], z[2]];
+      if (z[0] - z[2] < 0) z = [z[2], z[1], z[0]];
+      z = z.map((x, j) => x * 2 - [1, 0, 0][j]);
+    }
+    return Math.hypot(...z) * 2 ** -13;
+  }, 1.6, { bailout: 1e6 });
+  // Syntopia, Kaleidoscopic IFS/Dodecahedron.frag (Phi exact). The .frag
+  // returns |z|·Scale^(−n−1), one extra 1/Scale for points that never bail
+  // out, so compare the folded point instead.
+  {
+    const PHI = (1 + Math.sqrt(5)) / 2, S = 2.617924;
+    const N = [[-1, PHI - 1, 1 / (PHI - 1)], [PHI - 1, 1 / (PHI - 1), -1], [1 / (PHI - 1), -1, PHI - 1]].map(normalize);
+    const v = { ...defaults(), ...BIOMES.syndodeca.v, iterations: 6, bailout: 1e9 };
+    const m = makeDE(v).local;
+    let w = 0;
+    for (let i = 0; i < 300; i++) {
+      const p = rv(1.5);
+      let z = [...p];
+      for (let n = 0; n < 6; n++) {
+        for (let k = 0; k < 9; k++) { const nn = N[k % 3], t = Math.min(0, dot(z, nn)); z = z.map((x, j) => x - 2 * t * nn[j]); }
+        z = z.map(x => x * S - (S - 1));
+      }
+      w = Math.max(w, dist3(m(p).z, z) / (1 + Math.hypot(...z)));
+    }
+    ok(w < 1e-9, `${BIOMES.syndodeca.label}: same fold sequence as the .frag (worst ${w.toExponential(1)})`);
+  }
+  // Tryptophan, MultiIFS.frag (default, Mode 0)
+  compare('multiifs', p => {
+    const J = [0.0495, -0.14852, 0.28712], F = [0, 0, -0.45098], O = [-0.21976 + 1, 0.92304, 0.04392], S = 2;
+    let z = [...p];
+    for (let n = 0; n < 6; n++) {
+      z = z.map(Math.abs);
+      if (z[0] < z[1]) z = [z[1], z[0], z[2]];
+      if (z[0] < z[2]) z = [z[2], z[1], z[0]];
+      if (z[1] < z[2]) z = [z[0], z[2], z[1]];
+      z = z.map((x, j) => x + J[j]);
+      if (z[0] + z[1] < 0) z = [-z[1], -z[0], z[2]];
+      if (z[0] - z[1] < 0) z = [z[1], z[0], z[2]];
+      if (z[0] - z[2] < 0) z = [z[2], z[1], z[0]];
+      z = z.map((x, j) => Math.abs(x + F[j]) - F[j]);
+      z = z.map((x, j) => x - J[j]);
+      z = z.map((x, j) => x * S - O[j] * (S - 1));
+    }
+    const d = z.map(x => Math.abs(x) - 1);
+    return (Math.min(Math.max(...d), 0) + Math.hypot(...d.map(x => Math.max(x, 0)))) * S ** -6;
+  }, 2.5, { bailout: 1e6 });
+}
 
 // ── Symmetry ────────────────────────────────────────────────────────────────
 // The DE of each group's stack is invariant under that group's operations.
@@ -482,6 +842,9 @@ section('glsl');
     const combos = [];
     for (const st of ALL_STEPS) for (const mode of [0, 1, 2]) combos.push([{ A: [{ k: 1, ...st }], B: null, shape: (st.t + st.o) % 4 }, { mode, texLod: mode !== 1 }]);
     for (let shape = 0; shape < SHAPES.length; shape++) for (const mode of [0, 1, 2]) combos.push([{ A: [], B: null, shape }, { mode }]);
+    for (const st of SMOOTH_STEPS) combos.push([{ A: [{ k: 1, ...st }], B: null, shape: st.t % 4 }, { mode: st.o % 3 }]);
+    for (let m = 1; m < LEVEL_MODES.length; m++) for (let ls = 0; ls < SHAPES.length; ls++)
+      combos.push([{ A: [{ k: 1, t: T.OCTA, o: 0 }], B: null, shape: (ls * 3 + m) % SHAPES.length, lv: { m, s: ls } }, { mode: (m + ls) % 3, mat: ls % 2 === 0 }]);
     const big = ALL_STEPS.slice(0, 12).map((s, i) => ({ k: i + 1, ...s }));
     const bigB = ALL_STEPS.slice(12, 20).map((s, i) => ({ k: i + 1, ...s }));
     for (const mode of [0, 1, 2]) for (const mat of [false, true]) for (const extra of [{}, { rep: true, dz: true, xl: true }])
@@ -941,7 +1304,8 @@ section('evolve / rebirth');
   ok(good >= 4, 'rebirth usually finds a visible, non-enclosed view');
   for (const [k, b] of Object.entries(BIOMES)) {
     const s = viewScore({ ...defaults(), ...b.v }, 6);
-    ok(s.hitFrac > 0.05 && s.clearance > 0.05, `preset ${b.label}: camera outside, shape in view (${(s.hitFrac * 100).toFixed(0)}%)`);
+    if (b.inside) ok(s.hitFrac > 0.9 && s.clearance > 0.02, `preset ${b.label}: camera in a cavity of the lattice (clearance ${s.clearance.toFixed(3)})`);
+    else ok(s.hitFrac > 0.05 && s.clearance > 0.05, `preset ${b.label}: camera outside, shape in view (${(s.hitFrac * 100).toFixed(0)}%)`);
   }
 }
 
