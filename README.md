@@ -562,6 +562,10 @@ Also: a **Square Cross** seed shape, 20 presets in six new groups (credited abov
 
 **1.0.0** — First release. Forked from Kyma 2.20's engine, with a new KIFS formula layer: compiled fold stacks (11 step types), exact DE, two-stack hybrid schedules, per-iteration variation, four DE shapes, per-step colouring, symmetry-group presets, and Mandelbulber import with reference ports. A correct icosahedral fold (the 120-cell H3 fundamental domain).
 
+## License
+
+MIT — see [LICENSE](LICENSE).
+
 ---
 
 Created with help from Claude AI
